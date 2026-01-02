@@ -44,7 +44,7 @@ const Profile = () => {
   }, []);
 
   // Base URL for API
-  const BASE_URL = 'http://192.168.1.24:9000';
+  const BASE_URL = 'https://hotelvirat.com';
 
   // Fetch user data
   const fetchUserData = async () => {
@@ -63,23 +63,22 @@ const Profile = () => {
 
       const data = await response.json();
       if (response.ok) {
-        // Normalize image path: replace backslashes and ensure correct prefix
-        let imagePath = data.image;
-        if (imagePath) {
-          // Replace backslashes with forward slashes
-          imagePath = imagePath.replace(/\\/g, '/');
-          // Ensure path starts with /uploads/profile
-          if (imagePath.startsWith('uploads/profile/')) {
-            imagePath = `${imagePath.split('')[1]}`;
-          } else if (!imagePath.startsWith('')) {
-            imagePath = `${imagePath.split('/').pop()}`;
+        // Helper function to get proper image URL
+        const getImageUrl = (imagePath) => {
+          if (!imagePath) return null;
+          if (imagePath.startsWith('http')) return imagePath;
+          
+          // Always use production server for images
+          const prodBaseUrl = "https://hotelvirat.com";
+          let cleanPath = imagePath.replace(/\\/g, '/');
+          if (cleanPath.startsWith('/')) {
+            cleanPath = cleanPath.substring(1);
           }
-          // Construct full URL
-          imagePath = `${imagePath}?t=${new Date().getTime()}`;
-        }
+          return `${prodBaseUrl}/${cleanPath}`;
+        };
 
-        const imageUri = imagePath
-          ? { uri: imagePath }
+        const imageUri = data.image
+          ? { uri: getImageUrl(data.image) }
           : require("../assets/Profile.jpg");
 
         console.log('Profile Image URI:', imageUri); // Debug log
@@ -359,6 +358,12 @@ const Profile = () => {
           title: "My Orders",
           icon: "receipt-long",
           onPress: () => navigation.navigate("MyOrders"),
+        },
+        {
+          id: "tableReservations",
+          title: "My Table Reservations",
+          icon: "restaurant",
+          onPress: () => navigation.navigate("MyTableReservations"),
         },
         {
           id: "roomBookings",

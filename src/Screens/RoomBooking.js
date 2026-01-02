@@ -22,15 +22,24 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
 
-const API_BASE = "http://192.168.1.24:9000";
+const API_BASE = "https://hotelvirat.com/api/v1/hotel";
 
 // Helper function to get proper image URL
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
-  // If it's already a full URL (S3 or http), return as is
+  // If it's already a full URL, return as is
   if (imagePath.startsWith("http")) return imagePath;
-  // For local storage paths, prepend the base URL
-  return `${API_BASE}/${imagePath}`;
+  
+  // Try production server first for room images since they might be hosted there
+  const prodBaseUrl = "https://hotelvirat.com";
+  
+  // Clean up the path - remove leading slash if present
+  let cleanPath = imagePath.replace(/\\/g, '/'); // Convert backslashes to forward slashes
+  if (cleanPath.startsWith('/')) {
+    cleanPath = cleanPath.substring(1);
+  }
+  
+  return `${prodBaseUrl}/${cleanPath}`;
 };
 
 const RoomBooking = () => {
@@ -54,18 +63,138 @@ const RoomBooking = () => {
     checkOutDate: '',
     checkInTime: '12:00',
     checkOutTime: '11:00',
+    gstOption: 'withGST', // 'withoutGST', 'withGST', 'withIGST'
+    guestName: '',
+    guestPhone: '',
+    guestEmail: '',
+    guestGstNumber: '',
   });
   
   // Calendar state
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarFor, setCalendarFor] = useState('checkIn'); // 'checkIn' or 'checkOut'
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [monthlyBookings, setMonthlyBookings] = useState({});
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  
+  // Time slot state
+  const [showTimeSlotModal, setShowTimeSlotModal] = useState(false);
+  const [timeSlotFor, setTimeSlotFor] = useState('checkIn'); // 'checkIn' or 'checkOut'
+  const [availableTimeSlots, setAvailableTimeSlots] = useState([]);
+  const [bookedTimeSlots, setBookedTimeSlots] = useState({});
+
+  // Generate time slots (24-hour format)
+  const generateTimeSlots = () => {
+    const slots = [];
+    for (let hour = 0; hour < 24; hour++) {
+      const timeStr = `${hour.toString().padStart(2, '0')}:00`;
+      const displayTime = hour === 0 ? '12:00 AM' : 
+                         hour < 12 ? `${hour}:00 AM` : 
+                         hour === 12 ? '12:00 PM' : 
+                         `${hour - 12}:00 PM`;
+      slots.push({ value: timeStr, display: displayTime });
+    }
+    return slots;
+  };
+
+  // Fetch booked time slots for a specific room and date
+  const fetchBookedTimeSlots = async (roomId, date) => {
+    try {
+      console.log('🔍 Mobile App - Fetching booked slots for room:', roomId, 'date:', date)
+      const response = await fetch(`${API_BASE}/room-booking/slots/${roomId}?date=${date}`);
+      const data = await response.json();
+      console.log('✅ Mobile App - Booked slots response:', data)
+      return data.bookedSlots || [];
+    } catch (error) {
+      console.error('❌ Mobile App - Error fetching booked time slots:', error);
+      return [];
+    }
+  };
+
+  // Fetch booking data for entire month
+  const fetchMonthlyBookings = async (roomId, year, month) => {
+    if (!roomId) return;
+    
+    setCalendarLoading(true);
+    try {
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const bookingsMap = {};
+      
+      // Fetch booking data for each day of the month
+      const promises = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        promises.push(
+          fetchBookedTimeSlots(roomId, dateStr).then(bookedSlots => ({
+            date: dateStr,
+            bookedSlots,
+            isFullyBooked: bookedSlots.length >= 24,
+            hasBookings: bookedSlots.length > 0
+          }))
+        );
+      }
+      
+      const results = await Promise.all(promises);
+      results.forEach(result => {
+        bookingsMap[result.date] = result;
+      });
+      
+      setMonthlyBookings(bookingsMap);
+    } catch (error) {
+      console.error('Error fetching monthly bookings:', error);
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
+  // Check if a time slot is available
+  const isTimeSlotAvailable = (roomId, date, time) => {
+    const key = `${roomId}-${date}`;
+    const bookedSlots = bookedTimeSlots[key] || [];
+    return !bookedSlots.includes(time);
+  };
+
+  // Open time slot selector
+  const openTimeSlotSelector = async (type) => {
+    if (!selectedRoom) return;
+    
+    const date = type === 'checkIn' ? bookingForm.checkInDate : bookingForm.checkOutDate;
+    if (!date) {
+      Alert.alert('Error', `Please select ${type === 'checkIn' ? 'check-in' : 'check-out'} date first`);
+      return;
+    }
+
+    setTimeSlotFor(type);
+    
+    // Fetch booked slots for this room and date
+    const bookedSlots = await fetchBookedTimeSlots(selectedRoom._id, date);
+    const key = `${selectedRoom._id}-${date}`;
+    setBookedTimeSlots(prev => ({ ...prev, [key]: bookedSlots }));
+    
+    setShowTimeSlotModal(true);
+  };
+
+  // Select time slot
+  const selectTimeSlot = (timeValue) => {
+    if (timeSlotFor === 'checkIn') {
+      setBookingForm({ ...bookingForm, checkInTime: timeValue });
+    } else {
+      setBookingForm({ ...bookingForm, checkOutTime: timeValue });
+    }
+    setShowTimeSlotModal(false);
+  };
 
   // Open calendar for date selection
   const openCalendar = (type) => {
     setCalendarFor(type);
-    setCalendarMonth(new Date());
+    const currentMonth = new Date();
+    setCalendarMonth(currentMonth);
     setShowCalendar(true);
+    
+    // Fetch booking data for the current month if room is selected
+    if (selectedRoom) {
+      fetchMonthlyBookings(selectedRoom._id, currentMonth.getFullYear(), currentMonth.getMonth());
+    }
   };
 
   // Select date from calendar
@@ -74,6 +203,16 @@ const RoomBooking = () => {
     const month = String(calendarMonth.getMonth() + 1).padStart(2, '0');
     const dayStr = String(day).padStart(2, '0');
     const dateStr = `${year}-${month}-${dayStr}`;
+    
+    // Check if date is fully booked
+    if (isFullyBooked(day)) {
+      Alert.alert(
+        "Date Unavailable", 
+        "This date is fully booked. Please select a different date or check available time slots.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     
     if (calendarFor === 'checkIn') {
       setBookingForm({ ...bookingForm, checkInDate: dateStr });
@@ -97,6 +236,11 @@ const RoomBooking = () => {
     const newMonth = new Date(calendarMonth);
     newMonth.setMonth(newMonth.getMonth() + direction);
     setCalendarMonth(newMonth);
+    
+    // Fetch booking data for the new month
+    if (selectedRoom) {
+      fetchMonthlyBookings(selectedRoom._id, newMonth.getFullYear(), newMonth.getMonth());
+    }
   };
 
   // Calculate number of nights
@@ -109,29 +253,43 @@ const RoomBooking = () => {
     return diffDays > 0 ? diffDays : 0;
   };
 
-  // Calculate price with GST (Karnataka - 12% total: 6% CGST + 6% SGST for rooms < ₹7500)
-  // For rooms >= ₹7500, GST is 18% (9% CGST + 9% SGST)
+  // Calculate price with different GST options
   const calculatePrice = () => {
-    if (!selectedRoom) return { baseAmount: 0, cgst: 0, sgst: 0, totalAmount: 0, nights: 0 };
+    if (!selectedRoom) return { baseAmount: 0, cgst: 0, sgst: 0, igst: 0, totalAmount: 0, nights: 0, gstAmount: 0 };
     
     const nights = calculateNights();
     const baseAmount = selectedRoom.price * nights;
     
-    // Karnataka GST rates for hotels
-    // Below ₹7500 per night: 12% GST (6% CGST + 6% SGST)
-    // ₹7500 and above per night: 18% GST (9% CGST + 9% SGST)
-    const gstRate = selectedRoom.price >= 7500 ? 0.09 : 0.06;
+    let cgst = 0, sgst = 0, igst = 0, gstAmount = 0;
     
-    const cgst = baseAmount * gstRate;
-    const sgst = baseAmount * gstRate;
-    const totalAmount = baseAmount + cgst + sgst;
+    if (bookingForm.gstOption === 'withoutGST') {
+      // No GST
+      cgst = sgst = igst = gstAmount = 0;
+    } else if (bookingForm.gstOption === 'withGST') {
+      // Within State: CGST + SGST
+      // Below ₹7500 per night: 12% GST (6% CGST + 6% SGST)
+      // ₹7500 and above per night: 18% GST (9% CGST + 9% SGST)
+      const gstRate = selectedRoom.price >= 7500 ? 0.09 : 0.06;
+      cgst = baseAmount * gstRate;
+      sgst = baseAmount * gstRate;
+      gstAmount = cgst + sgst;
+    } else if (bookingForm.gstOption === 'withIGST') {
+      // Out of State: IGST
+      const gstRate = selectedRoom.price >= 7500 ? 0.18 : 0.12;
+      igst = baseAmount * gstRate;
+      gstAmount = igst;
+    }
+    
+    const totalAmount = baseAmount + gstAmount;
     
     return {
       nights,
       baseAmount,
       cgst,
       sgst,
-      gstPercent: gstRate * 100,
+      igst,
+      gstAmount,
+      gstPercent: selectedRoom.price >= 7500 ? (bookingForm.gstOption === 'withIGST' ? 18 : 9) : (bookingForm.gstOption === 'withIGST' ? 12 : 6),
       totalAmount,
     };
   };
@@ -144,6 +302,35 @@ const RoomBooking = () => {
     return checkDate < today;
   };
 
+  // Check if date has any bookings for the selected room
+  const hasBookingsOnDate = (day) => {
+    if (!selectedRoom) return false;
+    const year = calendarMonth.getFullYear();
+    const month = String(calendarMonth.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const dateStr = `${year}-${month}-${dayStr}`;
+    const bookingData = monthlyBookings[dateStr];
+    return bookingData?.hasBookings || false;
+  };
+
+  // Check if date is fully booked (all 24 hours booked)
+  const isFullyBooked = (day) => {
+    if (!selectedRoom) return false;
+    const year = calendarMonth.getFullYear();
+    const month = String(calendarMonth.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const dateStr = `${year}-${month}-${dayStr}`;
+    const bookingData = monthlyBookings[dateStr];
+    return bookingData?.isFullyBooked || false;
+  };
+
+  // Check if date is selectable (not in past and not fully booked)
+  const isDateSelectable = (day) => {
+    const isPast = isPastDate(day);
+    const fullyBooked = isFullyBooked(day);
+    return !isPast && !fullyBooked;
+  };
+
   // Get user ID and data on mount
   useEffect(() => {
     const getUserData = async () => {
@@ -152,7 +339,7 @@ const RoomBooking = () => {
         if (storedUserId) {
           setUserId(storedUserId);
           // Fetch user details from API
-          const response = await fetch(`${API_BASE}/api/v1/hotel/user-auth/${storedUserId}`);
+          const response = await fetch(`${API_BASE}/user-auth/${storedUserId}`);
           const data = await response.json();
           if (response.ok) {
             setUserData({
@@ -184,7 +371,7 @@ const RoomBooking = () => {
 
   const fetchBranches = async () => {
     try {
-      const response = await fetch("http://192.168.1.24:9000/api/v1/hotel/branch");
+      const response = await fetch(`${API_BASE}/branch`);
       const data = await response.json();
       console.log("Branches fetched:", data);
       if (Array.isArray(data)) {
@@ -203,8 +390,8 @@ const RoomBooking = () => {
     setLoading(true);
     try {
       const url = selectedBranch
-        ? `http://192.168.1.24:9000/api/v1/hotel/room?branchId=${selectedBranch}`
-        : "http://192.168.1.24:9000/api/v1/hotel/room";
+        ? `${API_BASE}/room?branchId=${selectedBranch}`
+        : `${API_BASE}/room`;
       console.log("Fetching rooms from:", url);
       const response = await fetch(url);
       const data = await response.json();
@@ -226,19 +413,11 @@ const RoomBooking = () => {
   };
 
   const fetchRoomBookings = async (roomsList) => {
-    try {
-      const bookingsMap = {};
-      for (const room of roomsList) {
-        const response = await fetch(`${API_BASE}/api/v1/hotel/room-booking/room/${room._id}/active`);
-        const booking = await response.json();
-        if (booking) {
-          bookingsMap[room._id] = booking;
-        }
-      }
-      setRoomBookings(bookingsMap);
-    } catch (error) {
-      console.error("Error fetching room bookings:", error);
-    }
+    // With time slot system, we don't need to fetch active bookings for room cards
+    // Room availability is now determined by individual time slots when booking
+    // This prevents rooms from showing as "occupied" when they have some bookings
+    // but are still available for other time slots
+    setRoomBookings({});
   };
 
   useEffect(() => {
@@ -279,47 +458,114 @@ const RoomBooking = () => {
     }
     setSelectedRoom(room);
     setShowRoomModal(false);
-    // Reset form
+    // Reset form with user data pre-filled
     setBookingForm({
       checkInDate: '',
       checkOutDate: '',
       checkInTime: '12:00',
       checkOutTime: '11:00',
+      gstOption: 'withGST',
+      guestName: userData?.name || '',
+      guestPhone: userData?.phone || '',
+      guestEmail: userData?.email || '',
+      guestGstNumber: '',
     });
     setShowBookingModal(true);
   };
 
   // Confirm booking
   const confirmBooking = async () => {
+    // Form validation
     if (!bookingForm.checkInDate || !bookingForm.checkOutDate) {
       Alert.alert("Error", "Please select check-in and check-out dates");
       return;
     }
 
+    if (!bookingForm.guestName.trim()) {
+      Alert.alert("Error", "Please enter guest name");
+      return;
+    }
+
+    if (!bookingForm.guestPhone.trim()) {
+      Alert.alert("Error", "Please enter phone number");
+      return;
+    }
+
+    // Validate phone number (basic validation)
+    const phoneRegex = /^[0-9]{10}$/;
+    if (!phoneRegex.test(bookingForm.guestPhone.replace(/\D/g, ''))) {
+      Alert.alert("Error", "Please enter a valid 10-digit phone number");
+      return;
+    }
+
+    // Validate email if provided
+    if (bookingForm.guestEmail.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(bookingForm.guestEmail.trim())) {
+        Alert.alert("Error", "Please enter a valid email address");
+        return;
+      }
+    }
+
+    // Validate GST number if provided
+    if (bookingForm.guestGstNumber.trim()) {
+      const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+      if (!gstRegex.test(bookingForm.guestGstNumber.trim())) {
+        Alert.alert("Error", "Please enter a valid GST number (15 characters: 22AAAAA0000A1Z5)");
+        return;
+      }
+    }
+
+    // Validate dates
+    const checkInDate = new Date(bookingForm.checkInDate);
+    const checkOutDate = new Date(bookingForm.checkOutDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (checkInDate < today) {
+      Alert.alert("Error", "Check-in date cannot be in the past");
+      return;
+    }
+
+    if (checkOutDate <= checkInDate) {
+      Alert.alert("Error", "Check-out date must be after check-in date");
+      return;
+    }
+
     setBookingLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/hotel/room-booking`, {
+      const priceDetails = calculatePrice();
+      
+      const bookingData = {
+        roomId: selectedRoom._id,
+        branchId: selectedRoom.branchId?._id || selectedRoom.branchId,
+        userId: userId,
+        userName: bookingForm.guestName.trim(),
+        userPhone: bookingForm.guestPhone.trim(),
+        userEmail: bookingForm.guestEmail.trim() || '',
+        guestGstNumber: bookingForm.guestGstNumber.trim() || '',
+        checkInDate: bookingForm.checkInDate,
+        checkOutDate: bookingForm.checkOutDate,
+        checkInTime: bookingForm.checkInTime,
+        checkOutTime: bookingForm.checkOutTime,
+        gstOption: bookingForm.gstOption,
+        nights: priceDetails.nights,
+        baseAmount: priceDetails.baseAmount,
+        cgst: priceDetails.cgst,
+        sgst: priceDetails.sgst,
+        igst: priceDetails.igst,
+        gstAmount: priceDetails.gstAmount,
+        totalPrice: priceDetails.totalAmount,
+      };
+
+      console.log('Booking data:', bookingData);
+
+      const response = await fetch(`${API_BASE}/room-booking`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          roomId: selectedRoom._id,
-          branchId: selectedRoom.branchId?._id || selectedRoom.branchId,
-          userId: userId,
-          userName: userData?.name || 'Guest',
-          userPhone: userData?.phone || '',
-          userEmail: userData?.email || '',
-          checkInDate: bookingForm.checkInDate,
-          checkOutDate: bookingForm.checkOutDate,
-          checkInTime: bookingForm.checkInTime,
-          checkOutTime: bookingForm.checkOutTime,
-          totalPrice: calculatePrice().totalAmount,
-          nights: calculatePrice().nights,
-          baseAmount: calculatePrice().baseAmount,
-          cgst: calculatePrice().cgst,
-          sgst: calculatePrice().sgst,
-        }),
+        body: JSON.stringify(bookingData),
       });
 
       const data = await response.json();
@@ -335,6 +581,7 @@ const RoomBooking = () => {
       }
     } catch (error) {
       setBookingLoading(false);
+      console.error('Booking error:', error);
       Alert.alert("Error", "Booking failed. Please try again.");
     }
   };
@@ -348,7 +595,11 @@ const RoomBooking = () => {
 
   const RoomCard = ({ room }) => {
     const booking = roomBookings[room._id];
-    const isBooked = !room.isAvailable || booking;
+    // Room is available if it's marked as available in the system
+    // Individual time slots will be checked during booking
+    const isAvailable = room.isAvailable;
+    const [imageLoading, setImageLoading] = useState(true);
+    const [imageError, setImageError] = useState(false);
 
     return (
       <TouchableOpacity
@@ -358,13 +609,50 @@ const RoomBooking = () => {
           setShowRoomModal(true);
         }}
       >
-        <Image
-          source={{ uri: room.images && room.images[0] ? getImageUrl(room.images[0]) : "https://via.placeholder.com/300x200" }}
-          style={styles.roomImage}
-        />
-        {isBooked && (
+        <View style={styles.imageContainer}>
+          <Image
+            source={{ uri: room.images && room.images[0] ? getImageUrl(room.images[0]) : "https://via.placeholder.com/300x200" }}
+            style={styles.roomImage}
+            onLoadStart={() => setImageLoading(true)}
+            onLoadEnd={() => setImageLoading(false)}
+            onError={(e) => {
+              console.log('❌ Room image failed (production server):', room.images[0]);
+              // Try production server as fallback
+              const fallbackUrl = room.images[0]?.startsWith('http') 
+                ? room.images[0] 
+                : `https://hotelvirat.com/${room.images[0]?.replace(/^\//, '')}`;
+              
+              console.log('🔄 Trying production server:', fallbackUrl);
+              
+              // Only try fallback once by checking current URL
+              const currentUrl = e.target._source?.uri || '';
+              if (currentUrl.includes('hotelvirat.com')) {
+                // Currently trying production, switch to fallback
+                e.target.setNativeProps({
+                  source: { uri: fallbackUrl }
+                });
+              } else {
+                console.log('❌ Both servers failed for room image');
+                setImageLoading(false);
+                setImageError(true);
+              }
+            }}
+          />
+          {imageLoading && (
+            <View style={styles.imageLoadingOverlay}>
+              <ActivityIndicator size="large" color="#800000" />
+            </View>
+          )}
+          {imageError && (
+            <View style={styles.imageErrorOverlay}>
+              <Icon name="broken-image" size={40} color={isDark ? "#666" : "#ccc"} />
+              <Text style={styles.imageErrorText}>Image not available</Text>
+            </View>
+          )}
+        </View>
+        {!isAvailable && (
           <View style={styles.bookedBadge}>
-            <Text style={styles.bookedBadgeText}>BOOKED</Text>
+            <Text style={styles.bookedBadgeText}>UNAVAILABLE</Text>
           </View>
         )}
         <View style={styles.roomInfo}>
@@ -383,39 +671,18 @@ const RoomBooking = () => {
             )}
           </View>
           
-          {/* Show booking info - only show details if it's the current user's booking */}
-          {booking && (
-            <View style={styles.bookingInfoCard}>
-              {booking.userId === userId ? (
-                <>
-                  <Text style={styles.bookingInfoTitle}>Your Booking</Text>
-                  <Text style={styles.bookingInfoText}>
-                    Check-in: {formatDate(booking.checkInDate)} at {booking.checkInTime}
-                  </Text>
-                  <Text style={styles.bookingInfoText}>
-                    Check-out: {formatDate(booking.checkOutDate)} at {booking.checkOutTime}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.bookingInfoTitle}>Room is Booked</Text>
-                  <Text style={styles.bookingInfoText}>
-                    Available from: {formatDate(booking.checkOutDate)}
-                  </Text>
-                </>
-              )}
-            </View>
-          )}
+          {/* With time slot system, rooms are available for booking at different times */}
+          {/* Individual booking details are not shown on room cards */}
 
           <View style={styles.roomFooter}>
             <Text style={styles.price}>₹{room.price}</Text>
             <TouchableOpacity
-              style={[styles.bookButtonSmall, isBooked && styles.bookButtonDisabled]}
-              disabled={isBooked}
+              style={[styles.bookButtonSmall, !isAvailable && styles.bookButtonDisabled]}
+              disabled={!isAvailable}
               onPress={() => handleBookRoom(room)}
             >
               <Text style={styles.bookButtonSmallText}>
-                {isBooked ? "Booked" : "Book"}
+                {!isAvailable ? "Unavailable" : "Book"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -426,6 +693,21 @@ const RoomBooking = () => {
 
   const RoomDetailModal = () => {
     if (!selectedRoom) return null;
+    const [modalImageLoading, setModalImageLoading] = useState({});
+    const [modalImageErrors, setModalImageErrors] = useState({});
+
+    const handleImageLoadStart = (index) => {
+      setModalImageLoading(prev => ({ ...prev, [index]: true }));
+    };
+
+    const handleImageLoadEnd = (index) => {
+      setModalImageLoading(prev => ({ ...prev, [index]: false }));
+    };
+
+    const handleImageError = (index) => {
+      setModalImageLoading(prev => ({ ...prev, [index]: false }));
+      setModalImageErrors(prev => ({ ...prev, [index]: true }));
+    };
 
     return (
       <Modal visible={showRoomModal} animationType="slide" transparent={true}>
@@ -440,10 +722,49 @@ const RoomBooking = () => {
               <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
                 {selectedRoom.images && selectedRoom.images.length > 0 ? (
                   selectedRoom.images.map((image, index) => (
-                    <Image key={index} source={{ uri: getImageUrl(image) }} style={styles.modalImage} />
+                    <View key={index} style={styles.modalImageContainer}>
+                      <Image 
+                        source={{ uri: getImageUrl(image) }} 
+                        style={styles.modalImage}
+                        onLoadStart={() => handleImageLoadStart(index)}
+                        onLoadEnd={() => handleImageLoadEnd(index)}
+                        onError={(e) => {
+                          console.log('❌ Modal room image failed (production server):', image);
+                          // Try production server as fallback
+                          const fallbackUrl = image?.startsWith('http') 
+                            ? image 
+                            : `https://hotelvirat.com/${image?.replace(/^\//, '')}`;
+                          
+                          console.log('🔄 Trying production server:', fallbackUrl);
+                          
+                          // Only try fallback once
+                          if (e.target._source.uri.includes('hotelvirat.com')) {
+                            e.target.setNativeProps({
+                              source: { uri: fallbackUrl }
+                            });
+                          } else {
+                            console.log('❌ Both servers failed for modal room image');
+                            handleImageError(index);
+                          }
+                        }}
+                      />
+                      {modalImageLoading[index] && (
+                        <View style={styles.modalImageLoadingOverlay}>
+                          <ActivityIndicator size="large" color="#800000" />
+                        </View>
+                      )}
+                      {modalImageErrors[index] && (
+                        <View style={styles.modalImageErrorOverlay}>
+                          <Icon name="broken-image" size={60} color={isDark ? "#666" : "#ccc"} />
+                          <Text style={styles.modalImageErrorText}>Image not available</Text>
+                        </View>
+                      )}
+                    </View>
                   ))
                 ) : (
-                  <Image source={{ uri: "https://via.placeholder.com/400x300" }} style={styles.modalImage} />
+                  <View style={styles.modalImageContainer}>
+                    <Image source={{ uri: "https://via.placeholder.com/400x300" }} style={styles.modalImage} />
+                  </View>
                 )}
               </ScrollView>
 
@@ -499,32 +820,8 @@ const RoomBooking = () => {
                   </View>
                 </View>
 
-                {/* Show booking info if booked - only show details if it's the current user's booking */}
-                {roomBookings[selectedRoom._id] && (
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Booking Status</Text>
-                    <View style={styles.bookingInfoCard}>
-                      {roomBookings[selectedRoom._id].userId === userId ? (
-                        <>
-                          <Text style={styles.bookingInfoTitle}>Your Booking</Text>
-                          <Text style={styles.bookingInfoText}>
-                            Check-in: {formatDate(roomBookings[selectedRoom._id].checkInDate)} at {roomBookings[selectedRoom._id].checkInTime}
-                          </Text>
-                          <Text style={styles.bookingInfoText}>
-                            Check-out: {formatDate(roomBookings[selectedRoom._id].checkOutDate)} at {roomBookings[selectedRoom._id].checkOutTime}
-                          </Text>
-                        </>
-                      ) : (
-                        <>
-                          <Text style={styles.bookingInfoTitle}>This room is currently booked</Text>
-                          <Text style={styles.bookingInfoText}>
-                            Available from: {formatDate(roomBookings[selectedRoom._id].checkOutDate)}
-                          </Text>
-                        </>
-                      )}
-                    </View>
-                  </View>
-                )}
+                {/* With time slot system, rooms can be booked for different time periods */}
+                {/* Specific booking conflicts will be shown during the booking process */}
 
                 <View style={styles.priceSection}>
                   <View>
@@ -532,12 +829,12 @@ const RoomBooking = () => {
                     <Text style={styles.priceLarge}>₹{selectedRoom.price}</Text>
                   </View>
                   <TouchableOpacity
-                    style={[styles.bookButton, (!selectedRoom.isAvailable || roomBookings[selectedRoom._id]) && styles.bookButtonDisabled]}
-                    disabled={!selectedRoom.isAvailable || roomBookings[selectedRoom._id]}
+                    style={[styles.bookButton, !selectedRoom.isAvailable && styles.bookButtonDisabled]}
+                    disabled={!selectedRoom.isAvailable}
                     onPress={() => handleBookRoom(selectedRoom)}
                   >
                     <Text style={styles.bookButtonText}>
-                      {(!selectedRoom.isAvailable || roomBookings[selectedRoom._id]) ? "Booked" : "Book Now"}
+                      {!selectedRoom.isAvailable ? "Unavailable" : "Book Now"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -638,16 +935,55 @@ const RoomBooking = () => {
                   {/* Guest Info */}
                   <View style={styles.formSection}>
                     <Text style={styles.formSectionTitle}>Guest Details</Text>
-                    <View style={styles.guestInfo}>
-                      <Icon name="person" size={20} color="#800000" />
-                      <Text style={styles.guestName}>{userData?.name || 'Guest'}</Text>
+                    
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Name *</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Enter guest name"
+                        placeholderTextColor={isDark ? "#666" : "#999"}
+                        value={bookingForm.guestName || userData?.name || ''}
+                        onChangeText={(text) => setBookingForm({...bookingForm, guestName: text})}
+                      />
                     </View>
-                    {userData?.phone && (
-                      <View style={styles.guestInfo}>
-                        <Icon name="phone" size={20} color="#800000" />
-                        <Text style={styles.guestPhone}>{userData.phone}</Text>
-                      </View>
-                    )}
+                    
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Phone *</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Enter phone number"
+                        placeholderTextColor={isDark ? "#666" : "#999"}
+                        value={bookingForm.guestPhone || userData?.phone || ''}
+                        onChangeText={(text) => setBookingForm({...bookingForm, guestPhone: text})}
+                        keyboardType="phone-pad"
+                      />
+                    </View>
+                    
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Email (Optional)</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Enter email address"
+                        placeholderTextColor={isDark ? "#666" : "#999"}
+                        value={bookingForm.guestEmail || userData?.email || ''}
+                        onChangeText={(text) => setBookingForm({...bookingForm, guestEmail: text})}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>GST Number (Optional)</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Enter GST number (e.g., 22AAAAA0000A1Z5)"
+                        placeholderTextColor={isDark ? "#666" : "#999"}
+                        value={bookingForm.guestGstNumber}
+                        onChangeText={(text) => setBookingForm({...bookingForm, guestGstNumber: text.toUpperCase()})}
+                        autoCapitalize="characters"
+                        maxLength={15}
+                      />
+                    </View>
                   </View>
 
                   {/* Check-in Date */}
@@ -663,16 +999,15 @@ const RoomBooking = () => {
                           </Text>
                         </View>
                       </TouchableOpacity>
-                      <View style={styles.timeInput}>
-                        <Text style={styles.inputLabel}>Time</Text>
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="12:00"
-                          placeholderTextColor={isDark ? "#666" : "#999"}
-                          value={bookingForm.checkInTime}
-                          onChangeText={(text) => setBookingForm({...bookingForm, checkInTime: text})}
-                        />
-                      </View>
+                      <TouchableOpacity style={styles.timeInput} onPress={() => openTimeSlotSelector('checkIn')}>
+                        <Text style={styles.inputLabel}>Time *</Text>
+                        <View style={styles.timePickerBtn}>
+                          <Icon name="access-time" size={20} color="#800000" />
+                          <Text style={[styles.timePickerText, !bookingForm.checkInTime && styles.placeholderText]}>
+                            {bookingForm.checkInTime || 'Select Time'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
                     </View>
                   </View>
 
@@ -689,17 +1024,64 @@ const RoomBooking = () => {
                           </Text>
                         </View>
                       </TouchableOpacity>
-                      <View style={styles.timeInput}>
-                        <Text style={styles.inputLabel}>Time</Text>
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="11:00"
-                          placeholderTextColor={isDark ? "#666" : "#999"}
-                          value={bookingForm.checkOutTime}
-                          onChangeText={(text) => setBookingForm({...bookingForm, checkOutTime: text})}
-                        />
-                      </View>
+                      <TouchableOpacity style={styles.timeInput} onPress={() => openTimeSlotSelector('checkOut')}>
+                        <Text style={styles.inputLabel}>Time *</Text>
+                        <View style={styles.timePickerBtn}>
+                          <Icon name="access-time" size={20} color="#800000" />
+                          <Text style={[styles.timePickerText, !bookingForm.checkOutTime && styles.placeholderText]}>
+                            {bookingForm.checkOutTime || 'Select Time'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
                     </View>
+                  </View>
+
+                  {/* GST Options */}
+                  <View style={styles.formSection}>
+                    <Text style={styles.formSectionTitle}>GST Option</Text>
+                    
+                    <TouchableOpacity 
+                      style={[styles.gstOption, bookingForm.gstOption === 'withoutGST' && styles.gstOptionSelected]}
+                      onPress={() => setBookingForm({...bookingForm, gstOption: 'withoutGST'})}
+                    >
+                      <View style={styles.radioButton}>
+                        {bookingForm.gstOption === 'withoutGST' && <View style={styles.radioButtonSelected} />}
+                      </View>
+                      <View style={styles.gstOptionContent}>
+                        <Text style={[styles.gstOptionTitle, isDark ? styles.textDark : styles.textLight]}>Without GST</Text>
+                        <Text style={styles.gstOptionSubtitle}>Basic price only</Text>
+                      </View>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.gstOption, bookingForm.gstOption === 'withGST' && styles.gstOptionSelected]}
+                      onPress={() => setBookingForm({...bookingForm, gstOption: 'withGST'})}
+                    >
+                      <View style={styles.radioButton}>
+                        {bookingForm.gstOption === 'withGST' && <View style={styles.radioButtonSelected} />}
+                      </View>
+                      <View style={styles.gstOptionContent}>
+                        <Text style={[styles.gstOptionTitle, isDark ? styles.textDark : styles.textLight]}>With GST (Within State)</Text>
+                        <Text style={styles.gstOptionSubtitle}>
+                          CGST {selectedRoom?.price >= 7500 ? '9%' : '6%'} + SGST {selectedRoom?.price >= 7500 ? '9%' : '6%'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.gstOption, bookingForm.gstOption === 'withIGST' && styles.gstOptionSelected]}
+                      onPress={() => setBookingForm({...bookingForm, gstOption: 'withIGST'})}
+                    >
+                      <View style={styles.radioButton}>
+                        {bookingForm.gstOption === 'withIGST' && <View style={styles.radioButtonSelected} />}
+                      </View>
+                      <View style={styles.gstOptionContent}>
+                        <Text style={[styles.gstOptionTitle, isDark ? styles.textDark : styles.textLight]}>With IGST (Out of State)</Text>
+                        <Text style={styles.gstOptionSubtitle}>
+                          IGST {selectedRoom?.price >= 7500 ? '18%' : '12%'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
                   </View>
 
                   {/* Price Breakdown */}
@@ -718,15 +1100,33 @@ const RoomBooking = () => {
                               <Text style={styles.priceValue}>₹{priceDetails.baseAmount.toFixed(2)}</Text>
                             </View>
                             
-                            <View style={styles.priceRow}>
-                              <Text style={styles.priceLabel}>CGST ({priceDetails.gstPercent}%)</Text>
-                              <Text style={styles.priceValue}>₹{priceDetails.cgst.toFixed(2)}</Text>
-                            </View>
+                            {bookingForm.gstOption === 'withGST' && (
+                              <>
+                                <View style={styles.priceRow}>
+                                  <Text style={styles.priceLabel}>CGST ({priceDetails.gstPercent}%)</Text>
+                                  <Text style={styles.priceValue}>₹{priceDetails.cgst.toFixed(2)}</Text>
+                                </View>
+                                
+                                <View style={styles.priceRow}>
+                                  <Text style={styles.priceLabel}>SGST ({priceDetails.gstPercent}%)</Text>
+                                  <Text style={styles.priceValue}>₹{priceDetails.sgst.toFixed(2)}</Text>
+                                </View>
+                              </>
+                            )}
                             
-                            <View style={styles.priceRow}>
-                              <Text style={styles.priceLabel}>SGST ({priceDetails.gstPercent}%)</Text>
-                              <Text style={styles.priceValue}>₹{priceDetails.sgst.toFixed(2)}</Text>
-                            </View>
+                            {bookingForm.gstOption === 'withIGST' && (
+                              <View style={styles.priceRow}>
+                                <Text style={styles.priceLabel}>IGST ({priceDetails.gstPercent}%)</Text>
+                                <Text style={styles.priceValue}>₹{priceDetails.igst.toFixed(2)}</Text>
+                              </View>
+                            )}
+                            
+                            {bookingForm.gstOption !== 'withoutGST' && (
+                              <View style={styles.priceRow}>
+                                <Text style={styles.priceLabel}>Total GST</Text>
+                                <Text style={styles.priceValue}>₹{priceDetails.gstAmount.toFixed(2)}</Text>
+                              </View>
+                            )}
                             
                             <View style={styles.priceDivider} />
                             
@@ -772,16 +1172,47 @@ const RoomBooking = () => {
         <View style={styles.calendarOverlay}>
           <View style={styles.calendarContainer}>
             <View style={styles.calendarHeader}>
-              <TouchableOpacity onPress={() => changeMonth(-1)}>
+              <TouchableOpacity onPress={() => changeMonth(-1)} disabled={calendarLoading}>
                 <Icon name="chevron-left" size={28} color={isDark ? "#fff" : "#000"} />
               </TouchableOpacity>
               <Text style={styles.calendarTitle}>
                 {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               </Text>
-              <TouchableOpacity onPress={() => changeMonth(1)}>
+              <TouchableOpacity onPress={() => changeMonth(1)} disabled={calendarLoading}>
                 <Icon name="chevron-right" size={28} color={isDark ? "#fff" : "#000"} />
               </TouchableOpacity>
             </View>
+
+            {/* Calendar Legend */}
+            <View style={styles.calendarLegend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#22c55e' }]} />
+                <Text style={styles.legendText}>Available</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
+                <Text style={styles.legendText}>Partial</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#dc2626' }]} />
+                <Text style={styles.legendText}>Full</Text>
+              </View>
+            </View>
+
+            {/* Info Message */}
+            <View style={styles.calendarInfo}>
+              <Text style={styles.calendarInfoText}>
+                🟢 Available for booking • 🟡 Some time slots booked • 🔴 Fully booked
+              </Text>
+            </View>
+
+            {/* Loading Indicator */}
+            {calendarLoading && (
+              <View style={styles.calendarLoadingContainer}>
+                <ActivityIndicator size="small" color="#800000" />
+                <Text style={styles.calendarLoadingText}>Loading availability...</Text>
+              </View>
+            )}
 
             <View style={styles.weekDays}>
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
@@ -801,15 +1232,39 @@ const RoomBooking = () => {
                 
                 // Days of the month
                 for (let day = 1; day <= daysInMonth; day++) {
-                  const isDisabled = isPastDate(day);
+                  const isPast = isPastDate(day);
+                  const hasBookings = hasBookingsOnDate(day);
+                  const fullyBooked = isFullyBooked(day);
+                  const isSelectable = isDateSelectable(day);
+                  const isAvailable = isSelectable && !hasBookings;
+                  
                   days.push(
                     <TouchableOpacity
                       key={day}
-                      style={[styles.dayCell, isDisabled && styles.dayCellDisabled]}
-                      onPress={() => !isDisabled && selectDate(day)}
-                      disabled={isDisabled}
+                      style={[
+                        styles.dayCell, 
+                        !isSelectable && styles.dayCellDisabled,
+                        fullyBooked && styles.dayCellFullyBooked
+                      ]}
+                      onPress={() => isSelectable && selectDate(day)}
+                      disabled={!isSelectable}
                     >
-                      <Text style={[styles.dayText, isDisabled && styles.dayTextDisabled]}>{day}</Text>
+                      <Text style={[
+                        styles.dayText, 
+                        !isSelectable && styles.dayTextDisabled,
+                        fullyBooked && styles.dayTextFullyBooked
+                      ]}>
+                        {day}
+                      </Text>
+                      {isAvailable && (
+                        <View style={styles.availableIndicator} />
+                      )}
+                      {hasBookings && !fullyBooked && (
+                        <View style={styles.partialBookingIndicator} />
+                      )}
+                      {fullyBooked && !isPast && (
+                        <View style={styles.fullBookingIndicator} />
+                      )}
                     </TouchableOpacity>
                   );
                 }
@@ -820,6 +1275,59 @@ const RoomBooking = () => {
 
             <TouchableOpacity style={styles.calendarCloseBtn} onPress={() => setShowCalendar(false)}>
               <Text style={styles.calendarCloseBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Time Slot Selection Modal */}
+      <Modal visible={showTimeSlotModal} animationType="fade" transparent={true}>
+        <View style={styles.timeSlotOverlay}>
+          <View style={styles.timeSlotContainer}>
+            <View style={styles.timeSlotHeader}>
+              <Text style={styles.timeSlotTitle}>
+                Select {timeSlotFor === 'checkIn' ? 'Check-in' : 'Check-out'} Time
+              </Text>
+              <TouchableOpacity onPress={() => setShowTimeSlotModal(false)}>
+                <Icon name="close" size={24} color={isDark ? "#fff" : "#000"} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.timeSlotList} showsVerticalScrollIndicator={false}>
+              {generateTimeSlots().map((slot) => {
+                const date = timeSlotFor === 'checkIn' ? bookingForm.checkInDate : bookingForm.checkOutDate;
+                const isAvailable = selectedRoom ? isTimeSlotAvailable(selectedRoom._id, date, slot.value) : true;
+                
+                return (
+                  <TouchableOpacity
+                    key={slot.value}
+                    style={[
+                      styles.timeSlotItem,
+                      !isAvailable && styles.timeSlotItemDisabled,
+                      (timeSlotFor === 'checkIn' ? bookingForm.checkInTime : bookingForm.checkOutTime) === slot.value && styles.timeSlotItemSelected
+                    ]}
+                    onPress={() => isAvailable && selectTimeSlot(slot.value)}
+                    disabled={!isAvailable}
+                  >
+                    <Text style={[
+                      styles.timeSlotText,
+                      !isAvailable && styles.timeSlotTextDisabled,
+                      (timeSlotFor === 'checkIn' ? bookingForm.checkInTime : bookingForm.checkOutTime) === slot.value && styles.timeSlotTextSelected
+                    ]}>
+                      {slot.display}
+                    </Text>
+                    {!isAvailable && (
+                      <View style={styles.bookedIndicator}>
+                        <Text style={styles.bookedIndicatorText}>Booked</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.timeSlotCloseBtn} onPress={() => setShowTimeSlotModal(false)}>
+              <Text style={styles.timeSlotCloseBtnText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -891,6 +1399,37 @@ const getStyles = (isDark) =>
       width: "100%",
       height: 200,
       backgroundColor: isDark ? "#333" : "#f3f4f6",
+    },
+    imageContainer: {
+      position: "relative",
+      width: "100%",
+      height: 200,
+    },
+    imageLoadingOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: isDark ? "#333" : "#f3f4f6",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    imageErrorOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: isDark ? "#333" : "#f3f4f6",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    imageErrorText: {
+      fontSize: 12,
+      color: isDark ? "#666" : "#999",
+      marginTop: 8,
+      textAlign: "center",
     },
     roomInfo: {
       padding: 15,
@@ -992,6 +1531,37 @@ const getStyles = (isDark) =>
       width: width,
       height: 300,
       backgroundColor: isDark ? "#333" : "#f3f4f6",
+    },
+    modalImageContainer: {
+      position: "relative",
+      width: width,
+      height: 300,
+    },
+    modalImageLoadingOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: isDark ? "#333" : "#f3f4f6",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    modalImageErrorOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: isDark ? "#333" : "#f3f4f6",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    modalImageErrorText: {
+      fontSize: 14,
+      color: isDark ? "#666" : "#999",
+      marginTop: 12,
+      textAlign: "center",
     },
     modalBody: {
       padding: 20,
@@ -1416,6 +1986,243 @@ const getStyles = (isDark) =>
       fontSize: 18,
       fontWeight: "bold",
       color: "#059669",
+    },
+    // GST Options Styles
+    gstOption: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: isDark ? "#333" : "#f8f9fa",
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 2,
+      borderColor: isDark ? "#444" : "#e5e7eb",
+    },
+    gstOptionSelected: {
+      borderColor: "#800000",
+      backgroundColor: isDark ? "#4a1a1a" : "#fef2f2",
+    },
+    radioButton: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: isDark ? "#666" : "#d1d5db",
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: 12,
+    },
+    radioButtonSelected: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: "#800000",
+    },
+    gstOptionContent: {
+      flex: 1,
+    },
+    gstOptionTitle: {
+      fontSize: 16,
+      fontWeight: "600",
+      marginBottom: 4,
+    },
+    gstOptionSubtitle: {
+      fontSize: 12,
+      color: isDark ? "#aaa" : "#666",
+    },
+    // Input Group Styles
+    inputGroup: {
+      marginBottom: 16,
+    },
+    // Text Color Styles
+    textDark: {
+      color: "#fff",
+    },
+    textLight: {
+      color: "#000",
+    },
+    // Time Picker Styles
+    timePickerBtn: {
+      backgroundColor: isDark ? "#333" : "#f3f4f6",
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: isDark ? "#444" : "#e5e7eb",
+    },
+    timePickerText: {
+      fontSize: 14,
+      color: isDark ? "#fff" : "#000",
+      marginLeft: 10,
+    },
+    // Time Slot Modal Styles
+    timeSlotOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0, 0, 0, 0.5)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
+    timeSlotContainer: {
+      backgroundColor: isDark ? "#2a2a2a" : "#fff",
+      borderRadius: 16,
+      padding: 20,
+      width: "100%",
+      maxWidth: 350,
+      maxHeight: "80%",
+    },
+    timeSlotHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 20,
+    },
+    timeSlotTitle: {
+      fontSize: 18,
+      fontWeight: "bold",
+      color: isDark ? "#fff" : "#000",
+    },
+    timeSlotList: {
+      maxHeight: 400,
+    },
+    timeSlotItem: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      marginBottom: 8,
+      backgroundColor: isDark ? "#333" : "#f8f9fa",
+      borderWidth: 1,
+      borderColor: isDark ? "#444" : "#e5e7eb",
+    },
+    timeSlotItemSelected: {
+      backgroundColor: "#800000",
+      borderColor: "#800000",
+    },
+    timeSlotItemDisabled: {
+      backgroundColor: isDark ? "#1a1a1a" : "#f3f4f6",
+      opacity: 0.5,
+    },
+    timeSlotText: {
+      fontSize: 16,
+      color: isDark ? "#fff" : "#000",
+    },
+    timeSlotTextSelected: {
+      color: "#fff",
+      fontWeight: "600",
+    },
+    timeSlotTextDisabled: {
+      color: isDark ? "#555" : "#999",
+    },
+    bookedIndicator: {
+      backgroundColor: "#dc2626",
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 4,
+    },
+    bookedIndicatorText: {
+      color: "#fff",
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    timeSlotCloseBtn: {
+      marginTop: 20,
+      paddingVertical: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: isDark ? "#555" : "#ddd",
+      alignItems: "center",
+    },
+    timeSlotCloseBtnText: {
+      fontSize: 16,
+      color: isDark ? "#fff" : "#000",
+      fontWeight: "600",
+    },
+    // Calendar Booking Indicators
+    dayCellFullyBooked: {
+      backgroundColor: "#dc2626",
+    },
+    dayTextFullyBooked: {
+      color: "#fff",
+    },
+    availableIndicator: {
+      position: "absolute",
+      top: 2,
+      right: 2,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "#22c55e",
+    },
+    partialBookingIndicator: {
+      position: "absolute",
+      top: 2,
+      right: 2,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "#f59e0b",
+    },
+    fullBookingIndicator: {
+      position: "absolute",
+      top: 2,
+      right: 2,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "#fff",
+    },
+    // Calendar Legend Styles
+    calendarLegend: {
+      flexDirection: "row",
+      justifyContent: "space-around",
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? "#444" : "#e5e7eb",
+      marginBottom: 10,
+    },
+    legendItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    legendDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    legendText: {
+      fontSize: 12,
+      color: isDark ? "#fff" : "#000",
+    },
+    // Calendar Loading Styles
+    calendarLoadingContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 10,
+      gap: 8,
+    },
+    calendarLoadingText: {
+      fontSize: 12,
+      color: isDark ? "#aaa" : "#666",
+    },
+    // Calendar Info Styles
+    calendarInfo: {
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      backgroundColor: isDark ? "#333" : "#f8f9fa",
+      borderRadius: 6,
+      marginBottom: 10,
+    },
+    calendarInfoText: {
+      fontSize: 11,
+      color: isDark ? "#aaa" : "#666",
+      textAlign: "center",
     },
   });
 

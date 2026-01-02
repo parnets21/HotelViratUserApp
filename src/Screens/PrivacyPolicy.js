@@ -41,13 +41,13 @@ const PrivacyPolicy = ({ navigation }) => {
 
           <Text style={styles.paragraph}>
             <Text style={styles.bold}>Hotel Virat</Text> ("us", "we", or "our") operates{' '}
-            <Text style={styles.bold}>http://192.168.1.24:9000</Text> (hereinafter referred to as{' '}
+            <Text style={styles.bold}>https://hotelvirat.com</Text> (hereinafter referred to as{' '}
             <Text style={styles.bold}>"Service"</Text>).
           </Text>
 
           <Text style={styles.paragraph}>
             Our Privacy Policy governs your visit to{' '}
-            <Text style={styles.bold}>http://192.168.1.24:9000</Text>, and explains how we collect,
+            <Text style={styles.bold}>https://hotelvirat.com</Text>, and explains how we collect,
             safeguard and disclose information that results from your use of our Service.
           </Text>
 
@@ -69,7 +69,7 @@ const PrivacyPolicy = ({ navigation }) => {
           </Text>
 
           <Text style={styles.paragraph}>
-            <Text style={styles.bold}>SERVICE</Text> means the http://192.168.1.24:9000 website
+            <Text style={styles.bold}>SERVICE</Text> means the https://hotelvirat.com website
             operated by Hotel Virat.
           </Text>
 

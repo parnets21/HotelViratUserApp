@@ -14,6 +14,8 @@ import {
   Appearance,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../context/AuthContext';
 
 const Toast = ({ message, type }) => {
   return (
@@ -25,6 +27,7 @@ const Toast = ({ message, type }) => {
 
 const Registration = () => {
   const navigation = useNavigation();
+  const { login } = useAuth();
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
@@ -95,7 +98,7 @@ const Registration = () => {
 
     setIsSendingOtp(true);
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/user-auth/register/send-otp', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/register/send-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -124,7 +127,7 @@ const Registration = () => {
   const handleResendOtp = async () => {
     setIsSendingOtp(true);
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/user-auth/register/resend-otp', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/register/resend-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -152,7 +155,7 @@ const Registration = () => {
   const handleRegister = async () => {
     setIsRegistering(true);
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/user-auth/verify-otp', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/verify-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -162,9 +165,14 @@ const Registration = () => {
 
       const data = await response.json();
       if (response.ok) {
-        showToast("Registration successful!");
+        // Save user ID and automatically log in
+        await AsyncStorage.setItem('userId', data.user._id);
+        console.log('✅ Registration successful, User ID saved:', data.user._id);
+        showToast("Registration successful! Logging you in...");
+        
+        // Automatically log the user in
         setTimeout(() => {
-          navigation.navigate("Login");
+          login();
         }, 2000);
       } else {
         showToast(data.message, 'error');
@@ -193,7 +201,7 @@ const Registration = () => {
       >
         <View style={styles.logoContainer}>
           <Image 
-            source={require('../assets/logo4.jpeg')} 
+            source={require('../assets/new-virat-logo.jpeg')} 
             style={styles.logo} 
             resizeMode="contain"
           />

@@ -41,7 +41,7 @@ const TermsConditions = ({ navigation }) => {
 
           <Text style={styles.paragraph}>
             These Terms of Service ("Terms", "Terms of Service") govern your use of our website
-            located at <Text style={styles.bold}>http://192.168.1.24:9000</Text> (together or
+            located at <Text style={styles.bold}>https://hotelvirat.com</Text> (together or
             individually "Service") operated by <Text style={styles.bold}>Hotel Virat</Text>.
           </Text>
 

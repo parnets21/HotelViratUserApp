@@ -80,7 +80,7 @@ const SubscriptionScreen = () => {
 
   const fetchBranches = async () => {
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/branch');
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/branch');
       const data = await response.json();
       setBranches(data);
     } catch (error) {
@@ -96,7 +96,7 @@ const SubscriptionScreen = () => {
     }
     
     try {
-      const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/menu?branchId=${selectedBranch}`);
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/menu?branchId=${selectedBranch}`);
       const data = await response.json();
       setProducts(data);
     } catch (error) {
@@ -114,7 +114,7 @@ const SubscriptionScreen = () => {
     
     setLoading(true);
     try {
-      const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/subscription/user/${userId}`);
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/subscription/user/${userId}`);
       const data = await response.json();
       
       if (data.success) {
@@ -138,7 +138,7 @@ const SubscriptionScreen = () => {
     }
 
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/subscription', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/subscription', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -177,7 +177,7 @@ const SubscriptionScreen = () => {
           text: 'Pause',
           onPress: async () => {
             try {
-              const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/subscription/${subscriptionId}/pause`, {
+              const response = await fetch(`https://hotelvirat.com/api/v1/hotel/subscription/${subscriptionId}/pause`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
@@ -207,7 +207,7 @@ const SubscriptionScreen = () => {
 
   const resumeSubscription = async (subscriptionId) => {
     try {
-      const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/subscription/${subscriptionId}/resume`, {
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/subscription/${subscriptionId}/resume`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -239,7 +239,7 @@ const SubscriptionScreen = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/subscription/${subscriptionId}/cancel`, {
+              const response = await fetch(`https://hotelvirat.com/api/v1/hotel/subscription/${subscriptionId}/cancel`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',

@@ -74,7 +74,7 @@ const MySubscriptionsScreen = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
-      const url = `http://192.168.1.24:9000/api/v1/hotel/subscription-order/user/${userId}`;
+      const url = `https://hotelvirat.com/api/v1/hotel/subscription-order/user/${userId}`;
       console.log('API URL:', url);
       
       const response = await fetch(url, {
@@ -118,7 +118,7 @@ const MySubscriptionsScreen = () => {
           text: 'Pause',
           onPress: async () => {
             try {
-              const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/subscription-order/${subscriptionId}/pause`, {
+              const response = await fetch(`https://hotelvirat.com/api/v1/hotel/subscription-order/${subscriptionId}/pause`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
@@ -148,7 +148,7 @@ const MySubscriptionsScreen = () => {
 
   const resumeSubscription = async (subscriptionId) => {
     try {
-      const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/subscription-order/${subscriptionId}/resume`, {
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/subscription-order/${subscriptionId}/resume`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -180,7 +180,7 @@ const MySubscriptionsScreen = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/subscription-order/${subscriptionId}/cancel`, {
+              const response = await fetch(`https://hotelvirat.com/api/v1/hotel/subscription-order/${subscriptionId}/cancel`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',

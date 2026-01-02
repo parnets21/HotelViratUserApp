@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Appearance,
   Alert,
+  Modal,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import Icon from "react-native-vector-icons/MaterialIcons"
@@ -27,9 +28,17 @@ const CARD_WIDTH = width - 32
 
 const Product = ({ route }) => {
   const navigation = useNavigation()
-  const { initialCategory = 0, categoryId, categories, branchId, product } = route.params
+  const { 
+    initialCategory = 0, 
+    categoryId, 
+    categories, 
+    branchId, 
+    product,
+    menuItems: passedMenuItems = [],
+    allMenuItems: passedAllMenuItems = {}
+  } = route.params
 
-  const { addToCart, removeFromCart, getBranchCartCount, getBranchCartItems, calculateBranchTotal, selectedBranch } =
+  const { addToCart, removeFromCart, getBranchCartCount, getBranchCartItems, calculateBranchTotal, selectedBranch, cartItems: globalCartItems } =
     useCart()
 
   const [selectedCategory, setSelectedCategory] = useState(initialCategory)
@@ -48,6 +57,11 @@ const Product = ({ route }) => {
   const [cartItems, setCartItems] = useState([])
   const [colorScheme, setColorScheme] = useState(Appearance.getColorScheme())
   const [mealOfTheDayProduct, setMealOfTheDayProduct] = useState(product || null)
+  const [imageErrors, setImageErrors] = useState({})
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false)
+  const [selectedItemForSubscription, setSelectedItemForSubscription] = useState(null)
+  const [userSubscriptions, setUserSubscriptions] = useState([])
+  const [loadingSubscriptions, setLoadingSubscriptions] = useState(false)
 
   // Listen for system theme changes
   useEffect(() => {
@@ -57,14 +71,126 @@ const Product = ({ route }) => {
     return () => subscription.remove()
   }, [])
 
-  // Define fetchMenuItems function
+  // Initialize menu items with passed data from Home screen
+  useEffect(() => {
+    console.log("🔍 Product screen received data:", {
+      passedMenuItems: passedMenuItems.length,
+      passedAllMenuItems: Object.keys(passedAllMenuItems).length,
+      categoryId,
+      categories: categories?.length
+    });
+
+    if (passedMenuItems.length > 0) {
+      console.log("✅ Using passed menu items:", passedMenuItems.length);
+      setMenuItems(passedMenuItems);
+      setFilteredItems(passedMenuItems);
+      setLoading(false);
+    }
+
+    if (Object.keys(passedAllMenuItems).length > 0) {
+      console.log("✅ Using passed all menu items");
+      // Convert the grouped menu items to a flat array
+      const flatMenuItems = Object.values(passedAllMenuItems).flat();
+      setAllMenuItems(flatMenuItems);
+    }
+  }, [passedMenuItems, passedAllMenuItems, categoryId]);
+
+  // Helper function to check if subscription is available
+  const hasSubscriptionAvailable = useCallback((item) => {
+    const hasSubscription = item.subscriptionEnabled && (
+      (item.subscription3Days && item.subscription3Days > 0) ||
+      (item.subscription1Week && item.subscription1Week > 0) ||
+      (item.subscription1Month && item.subscription1Month > 0)
+    );
+    
+    return hasSubscription;
+  }, []);
+
+  // Helper function to check if user has active subscription for a product
+  const hasActiveSubscription = (productId) => {
+    return userSubscriptions.some(sub => 
+      (sub.productId?._id || sub.productId) === productId && 
+      (sub.status === 'active' || sub.status === 'paused')
+    )
+  }
+
+  // Helper function to get user's subscription for a product
+  const getUserSubscription = (productId) => {
+    return userSubscriptions.find(sub => 
+      (sub.productId?._id || sub.productId) === productId && 
+      (sub.status === 'active' || sub.status === 'paused')
+    )
+  }
+
+  // Helper function to calculate discounted price
+  const getDiscountedPrice = (item) => {
+    if (!hasActiveSubscription(item.id)) {
+      return item.price // No subscription, return regular price
+    }
+    
+    // Get user's subscription to determine which plan they have
+    const userSubscription = getUserSubscription(item.id);
+    if (!userSubscription) {
+      return item.price // No subscription found, return regular price
+    }
+    
+    // Return the actual subscription price based on user's plan
+    let subscriptionPrice;
+    switch (userSubscription.planType) {
+      case 'daily':
+      case '3days':
+        subscriptionPrice = item.subscription3Days > 0 ? item.subscription3Days : item.price;
+        return subscriptionPrice;
+      case 'weekly':
+      case '1week':
+        subscriptionPrice = item.subscription1Week > 0 ? item.subscription1Week : item.price;
+        return subscriptionPrice;
+      case 'monthly':
+      case '1month':
+        subscriptionPrice = item.subscription1Month > 0 ? item.subscription1Month : item.price;
+        return subscriptionPrice;
+      default:
+        return item.price;
+    }
+  }
+
+  // Helper function to get price display with subscription info
+  const getPriceDisplay = (item) => {
+    const hasSubscription = hasActiveSubscription(item.id)
+    const regularPrice = item.price
+    const discountedPrice = getDiscountedPrice(item)
+    const discount = getSubscriptionDiscount(item)
+    
+    return {
+      hasSubscription,
+      regularPrice,
+      discountedPrice,
+      discount,
+      savings: regularPrice - discountedPrice
+    }
+  }
+
+  // Helper function to get subscription discount - simplified to just check if discount exists
+  const getSubscriptionDiscount = (item) => {
+    // Just return a simple indicator that subscription is available
+    // No need to calculate or show specific percentages
+    return hasSubscriptionAvailable(item) ? 1 : 0;
+  };
+
+  // Define fetchMenuItems function - only fetch if no data was passed from Home
   const fetchMenuItems = useCallback(async () => {
+    // Skip API fetch if we already have menu items from Home screen
+    if (passedMenuItems.length > 0) {
+      console.log("⏭️ Skipping API fetch - using passed menu items");
+      return;
+    }
+
     if (!branchId || !selectedCategoryId) return
 
     setLoading(true)
     try {
       const response = await fetch(
-        `http://192.168.1.24:9000/api/v1/hotel/menu?categoryId=${selectedCategoryId}&branchId=${branchId}`,
+        `https://hotelvirat.com/api/v1/hotel/menu?categoryId=${selectedCategoryId}&branchId=${branchId}`,
       )
       const data = await response.json()
 
@@ -77,12 +203,35 @@ const Product = ({ route }) => {
             const priceValues = Object.values(item.prices);
             itemPrice = priceValues.length > 0 ? priceValues[0] : 0;
           }
+          
+          // Construct image URL - use production server like admin panel
+          let imageUrl = null;
+          if (item.image) {
+            if (item.image.startsWith('http')) {
+              imageUrl = item.image;
+            } else {
+              // Use production server for images
+              const prodBaseUrl = "https://hotelvirat.com";
+              let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
+              
+              if (cleanPath.startsWith("/")) {
+                imageUrl = `${prodBaseUrl}${cleanPath}`;
+              } else if (cleanPath.startsWith("uploads/")) {
+                imageUrl = `${prodBaseUrl}/${cleanPath}`;
+              } else {
+                // Assume it's just a filename in uploads/menu/
+                const filename = cleanPath.split("/").pop();
+                imageUrl = `${prodBaseUrl}/uploads/menu/${filename}`;
+              }
+            }
+          }
+          
           return {
             id: item._id,
             name: item.name || item.itemName,
             price: itemPrice || 0,
             description: item.description || "",
-            image: item.image ? (item.image.startsWith('http') ? item.image : `http://192.168.1.24:9000${item.image.startsWith('/') ? '' : '/'}${item.image}`) : null,
+            image: imageUrl,
             categoryId: typeof item.categoryId === 'object' ? item.categoryId._id : item.categoryId,
             branchId: typeof item.branchId === 'object' ? item.branchId._id : item.branchId,
             stock: item.stock || 0,
@@ -90,6 +239,12 @@ const Product = ({ route }) => {
             isActive: item.isActive !== false,
             subscriptionEnabled: item.subscriptionEnabled || false,
             subscriptionPlans: item.subscriptionPlans || [],
+            subscriptionAmount: item.subscriptionAmount || 0,
+            subscriptionDiscount: item.subscriptionDiscount || 0,
+            subscriptionDuration: item.subscriptionDuration || '3days',
+            subscription3Days: item.subscription3Days || 0,
+            subscription1Week: item.subscription1Week || 0,
+            subscription1Month: item.subscription1Month || 0,
             quantities: item.quantities || [],
             prices: item.prices || {}
           };
@@ -128,7 +283,11 @@ const Product = ({ route }) => {
   useFocusEffect(
     useCallback(() => {
       fetchMenuItems()
-    }, [fetchMenuItems])
+      // Also refresh user subscriptions to show updated subscription status
+      if (userId) {
+        fetchUserSubscriptions(userId)
+      }
+    }, [fetchMenuItems, userId, passedMenuItems])
   )
 
   // Fetch user ID from AsyncStorage
@@ -138,6 +297,8 @@ const Product = ({ route }) => {
         const storedUserId = await AsyncStorage.getItem("userId")
         if (storedUserId) {
           setUserId(storedUserId)
+          // Fetch user subscriptions when userId is available
+          fetchUserSubscriptions(storedUserId)
         }
       } catch (error) {
         console.error("Error getting user ID:", error)  
@@ -146,6 +307,31 @@ const Product = ({ route }) => {
     getUserId()
   }, [])
 
+  // Fetch user's active subscriptions
+  const fetchUserSubscriptions = async (userId) => {
+    if (!userId) return
+    
+    setLoadingSubscriptions(true)
+    try {
+      const response = await fetch(
+        `https://hotelvirat.com/api/v1/hotel/subscription-order/user/${userId}`,
+      )
+      const data = await response.json()
+      
+      if (data.success && data.data) {
+        // Filter only active subscriptions
+        const activeSubscriptions = data.data.filter(sub => 
+          sub.status === 'active' || sub.status === 'paused'
+        )
+        setUserSubscriptions(activeSubscriptions)
+      }
+    } catch (error) {
+      console.error("Error fetching user subscriptions:", error)
+    } finally {
+      setLoadingSubscriptions(false)
+    }
+  }
+
   // Fetch cart items with prices
   useEffect(() => {
     const fetchCartWithPrices = async () => {
@@ -153,7 +339,7 @@ const Product = ({ route }) => {
 
       try {
         const response = await fetch(
-          `http://192.168.1.24:9000/api/v1/hotel/cart?userId=${userId}&branchId=${branchId}`,
+          `https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${branchId}`,
         )
         const data = await response.json()
 
@@ -176,9 +362,15 @@ const Product = ({ route }) => {
     fetchCartWithPrices()
   }, [userId, branchId, getBranchCartCount(selectedBranch)])
 
-  // Fetch all menu items by iterating through all categories
+  // Fetch all menu items by iterating through all categories - only if no data passed
   useEffect(() => {
     const fetchAllMenuItems = async () => {
+      // Skip API fetch if we already have all menu items from Home screen
+      if (Object.keys(passedAllMenuItems).length > 0) {
+        console.log("⏭️ Skipping all menu items API fetch - using passed data");
+        return;
+      }
+
       if (!branchId || !categories || categories.length === 0) return
 
       setLoading(true)
@@ -186,7 +378,7 @@ const Product = ({ route }) => {
         let allItems = []
         for (const category of categories) {
           const response = await fetch(
-            `http://192.168.1.24:9000/api/v1/hotel/menu?categoryId=${category.id}&branchId=${branchId}`,
+            `https://hotelvirat.com/api/v1/hotel/menu?categoryId=${category.id}&branchId=${branchId}`,
           )
           const data = await response.json()
 
@@ -203,11 +395,30 @@ const Product = ({ route }) => {
                 name: item.name || item.itemName,
                 price: itemPrice || 0,
                 description: item.description || "",
-                image: item.image ? (item.image.startsWith('http') ? item.image : `http://192.168.1.24:9000${item.image.startsWith('/') ? '' : '/'}${item.image}`) : null,
+                image: item.image ? (item.image.startsWith('http') ? item.image : (() => {
+                  const prodBaseUrl = "https://hotelvirat.com";
+                  let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
+                  if (cleanPath.startsWith("/")) {
+                    return `${prodBaseUrl}${cleanPath}`;
+                  } else if (cleanPath.startsWith("uploads/")) {
+                    return `${prodBaseUrl}/${cleanPath}`;
+                  } else {
+                    const filename = cleanPath.split("/").pop();
+                    return `${prodBaseUrl}/uploads/menu/${filename}`;
+                  }
+                })()) : null,
                 categoryId: item.categoryId,
                 stock: item.stock || 0,
                 lowStockAlert: item.lowStockAlert || 5,
-                isActive: item.isActive !== false
+                isActive: item.isActive !== false,
+                subscriptionEnabled: item.subscriptionEnabled || false,
+                subscriptionPlans: item.subscriptionPlans || [],
+                subscriptionAmount: item.subscriptionAmount || 0,
+                subscriptionDiscount: item.subscriptionDiscount || 0,
+                subscriptionDuration: item.subscriptionDuration || '3days',
+                subscription3Days: item.subscription3Days || 0,
+                subscription1Week: item.subscription1Week || 0,
+                subscription1Month: item.subscription1Month || 0
               };
             })
             allItems = [...allItems, ...formattedItems]
@@ -227,12 +438,25 @@ const Product = ({ route }) => {
     }
 
     fetchAllMenuItems()
-  }, [branchId, categories])
+  }, [branchId, categories, passedAllMenuItems])
 
-  // Fetch menu items for the selected category
+  // Update filtered items when menuItems change (category change)
+  useEffect(() => {
+    if (searchQuery.trim() === "") {
+      setFilteredItems(menuItems)
+    } else {
+      // Re-apply search filter to new category items
+      const filtered = menuItems.filter((item) => 
+        item.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
+      )
+      setFilteredItems(filtered)
+    }
+  }, [menuItems, searchQuery])
+
+  // Fetch menu items for the selected category - only if no passed data
   useEffect(() => {
     fetchMenuItems()
-  }, [fetchMenuItems])
+  }, [fetchMenuItems, passedMenuItems])
 
   // Initialize animated values for categories
   useEffect(() => {
@@ -255,7 +479,8 @@ const Product = ({ route }) => {
           .map(() => new Animated.Value(1))
         setItemAnimatedValues(newItemAnimatedValues)
       } else {
-        const filtered = allMenuItems.filter((item) => item.name.toLowerCase().includes(query.toLowerCase().trim()))
+        // Search only within the current category's menu items, not all items
+        const filtered = menuItems.filter((item) => item.name.toLowerCase().includes(query.toLowerCase().trim()))
         setFilteredItems(filtered)
         console.log("Filtered items:", filtered)
         const newItemAnimatedValues = Array(filtered.length)
@@ -264,19 +489,28 @@ const Product = ({ route }) => {
         setItemAnimatedValues(newItemAnimatedValues)
       }
     }, 300),
-    [menuItems, allMenuItems],
+    [menuItems], // Only depend on menuItems, not allMenuItems
   )
 
   // Update filtered items based on search query
   useEffect(() => {
-    debouncedSearch(searchQuery)
-  }, [searchQuery, debouncedSearch])
+    if (searchQuery.trim() === "") {
+      setFilteredItems(menuItems)
+    } else {
+      const filtered = menuItems.filter((item) => 
+        item.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
+      )
+      setFilteredItems(filtered)
+    }
+  }, [searchQuery, menuItems])
 
   // Update cart visibility
   useEffect(() => {
     const cartCount = getBranchCartCount(selectedBranch)
+    console.log('🛒 Cart visibility check:', { selectedBranch, cartCount, globalCartItems })
+    console.log('🛒 Cart items for branch:', globalCartItems[selectedBranch])
     setShowViewCart(cartCount > 0)
-  }, [selectedBranch, getBranchCartCount])
+  }, [selectedBranch, globalCartItems, getBranchCartCount])
 
   const handleCategoryPress = (categoryId, index) => {
     if (categoryAnimatedValues[index]) {
@@ -302,23 +536,27 @@ const Product = ({ route }) => {
       console.error("User ID not available")
       return
     }
-
-    // Check stock availability
-    if (item.stock <= 0) {
-      alert("This item is currently out of stock")
-      return
-    }
-
-    // Check if adding this item would exceed available stock
-    const existingCartItem = cartItems.find((i) => i.id === item.id)
-    const currentCartQuantity = existingCartItem ? existingCartItem.quantity : 0
-    const availableStock = item.stock - currentCartQuantity
     
-    if (availableStock <= 0) {
-      alert(`No more items available in stock`)
+    // Check if user already has an active subscription
+    if (hasActiveSubscription(item.id)) {
+      await addItemToCart(item, index)
+      return
+    }
+    
+    // Check if item has subscription enabled and show modal for choice
+    const hasSubscription = hasSubscriptionAvailable(item);
+    
+    if (hasSubscription) {
+      setSelectedItemForSubscription({ item, index })
+      setShowSubscriptionModal(true)
       return
     }
 
+    // Proceed with normal add to cart
+    await addItemToCart(item, index)
+  }
+
+  const addItemToCart = async (item, index) => {
     if (itemAnimatedValues[index]) {
       Animated.sequence([
         Animated.timing(itemAnimatedValues[index], {
@@ -335,23 +573,52 @@ const Product = ({ route }) => {
     }
 
     try {
+      // Get the correct price (discounted if user has subscription)
+      const priceInfo = getPriceDisplay(item)
+      const finalPrice = priceInfo.hasSubscription ? priceInfo.discountedPrice : priceInfo.regularPrice
+      
+      // Create item with correct price for cart context
+      const cartItem = {
+        ...item,
+        price: finalPrice,
+        originalPrice: priceInfo.regularPrice,
+        isDiscounted: priceInfo.hasSubscription,
+        discount: priceInfo.discount,
+        savings: priceInfo.savings
+      }
+
       // Update local cart state using branch index for CartContext
-      addToCart(selectedBranch, item, 1)
+      console.log('🛒 Adding to cart:', { selectedBranch, cartItem, quantity: 1 })
+      addToCart(selectedBranch, cartItem, 1)
+      
+      // Log cart count after adding
+      setTimeout(() => {
+        const newCount = getBranchCartCount(selectedBranch)
+        console.log('🛒 Cart count after adding:', newCount)
+      }, 100)
 
       // Immediately update local cartItems state
       setCartItems((prevItems) => {
         const existingItem = prevItems.find((i) => i.id === item.id)
         if (existingItem) {
-          return prevItems.map((i) => (i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i))
+          return prevItems.map((i) => (i.id === item.id ? { ...i, quantity: i.quantity + 1, price: finalPrice } : i))
         } else {
-          return [...prevItems, { ...item, quantity: 1 }]
+          return [...prevItems, { ...cartItem, quantity: 1 }]
         }
       })
 
       // Sync with server using actual branchId (MongoDB ObjectId)
-      console.log('Adding to cart:', { userId, branchId, menuItemId: item.id, itemName: item.name })
+      console.log('Adding to cart with price:', { 
+        userId, 
+        branchId, 
+        menuItemId: item.id, 
+        itemName: item.name,
+        price: finalPrice,
+        originalPrice: priceInfo.regularPrice,
+        isDiscounted: priceInfo.hasSubscription
+      })
       
-      const response = await fetch("http://192.168.1.24:9000/api/v1/hotel/cart/add", {
+      const response = await fetch("https://hotelvirat.com/api/v1/hotel/cart/add", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -361,6 +628,7 @@ const Product = ({ route }) => {
           branchId: branchId,
           menuItemId: item.id,
           quantity: 1,
+          price: finalPrice, // Send the correct price (discounted or regular)
         }),
       })
       
@@ -413,13 +681,13 @@ const Product = ({ route }) => {
       const quantity = getItemQuantity(item.id) - 1
       if (quantity <= 0) {
         await fetch(
-          `http://192.168.1.24:9000/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`,
+          `https://hotelvirat.com/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`,
           {
             method: "DELETE",
           },
         )
       } else {
-        await fetch("http://192.168.1.24:9000/api/v1/hotel/cart/update", {
+        await fetch("https://hotelvirat.com/api/v1/hotel/cart/update", {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -445,129 +713,145 @@ const Product = ({ route }) => {
 
   const renderCartControl = (item, index) => {
     const quantity = getItemQuantity(item.id)
-    const isOutOfStock = item.stock <= 0
-    const availableStock = item.stock - quantity
-
-    const handleAddWithAlert = () => {
-      if (availableStock <= 0) {
-        alert(`❌ No more items available!\n\nOnly ${item.stock} items in stock and you already have ${quantity} in your cart.`)
-        return
-      }
-      if (availableStock === 1 && quantity > 0) {
-        alert(`⚠️ Last item available!\n\nThis is the last ${item.name} in stock. Adding this will make it out of stock.`)
-      }
-      handleAddToCart(item, index)
-    }
 
     return (
-      <View style={[styles.cartControl, colorScheme === 'dark' ? styles.cartControlDark : styles.cartControlLight]}>
-        {isOutOfStock ? (
-          <View style={[styles.outOfStockContainer, colorScheme === 'dark' ? styles.outOfStockContainerDark : styles.outOfStockContainerLight]}>
-            <Icon name="block" size={16} color="#ff4444" />
-            <Text style={[styles.outOfStockText, colorScheme === 'dark' ? styles.outOfStockTextDark : styles.outOfStockTextLight]}>
-              OUT OF STOCK
-            </Text>
-          </View>
-        ) : quantity > 0 ? (
+      <View style={styles.cartControlContainer}>
+        {quantity > 0 ? (
           <View style={styles.quantityContainer}>
-            <View style={styles.quantityControls}>
-              <TouchableOpacity 
-                style={[styles.quantityButton, styles.minusButton]} 
-                onPress={() => handleRemoveFromCart(item, index)}
-              >
-                <Icon name="remove" size={16} color="#fff" />
-              </TouchableOpacity>
-              
-              <View style={[styles.quantityDisplay, colorScheme === 'dark' ? styles.quantityDisplayDark : styles.quantityDisplayLight]}>
-                <Text style={[styles.quantityText, colorScheme === 'dark' ? styles.quantityTextDark : styles.quantityTextLight]}>
-                  {quantity}
-                </Text>
-              </View>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.quantityButton, 
-                  styles.plusButton,
-                  availableStock <= 0 && styles.quantityButtonDisabled
-                ]} 
-                onPress={handleAddWithAlert}
-                disabled={availableStock <= 0}
-              >
-                <Icon name="add" size={16} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.stockInfoContainer}>
-              <Icon name="inventory" size={12} color={availableStock <= 2 ? "#ff6b35" : "#4CAF50"} />
-              <Text style={[
-                styles.stockCountText,
-                { color: availableStock <= 2 ? "#ff6b35" : "#4CAF50" }
-              ]}>
-                {availableStock <= 0 ? "No more left" : `${availableStock} left`}
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.addButtonContainer}>
             <TouchableOpacity 
-              style={[styles.addButton, colorScheme === 'dark' ? styles.addButtonDark : styles.addButtonLight]} 
-              onPress={() => handleAddToCart(item, index)}
+              style={[styles.quantityButton, styles.minusButton]} 
+              onPress={() => handleRemoveFromCart(item, index)}
             >
-              <Icon name="add-shopping-cart" size={16} color="#fff" />
-              <Text style={styles.addButtonText}>
-                ADD
-              </Text>
+              <Icon name="remove" size={18} color="#fff" />
             </TouchableOpacity>
             
-            <View style={styles.stockInfoContainer}>
-              <Icon name="inventory" size={12} color={item.stock <= 2 ? "#ff6b35" : "#4CAF50"} />
-              <Text style={[
-                styles.stockCountText,
-                { color: item.stock <= 2 ? "#ff6b35" : "#4CAF50" }
-              ]}>
-                {item.stock} left
+            <View style={styles.quantityDisplay}>
+              <Text style={styles.quantityText}>
+                {quantity}
               </Text>
             </View>
             
-            {item.subscriptionEnabled && item.subscriptionPlans && item.subscriptionPlans.length > 0 && (
-              <TouchableOpacity 
-                style={[styles.subscribeButton, colorScheme === 'dark' ? styles.subscribeButtonDark : styles.subscribeButtonLight]} 
-                onPress={() => navigation.navigate('SubscriptionOrder', { product: item })}
-              >
-                <Icon name="subscription" size={14} color="#fff" />
-                <Text style={styles.subscribeButtonText}>
-                  SUBSCRIBE
-                </Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity 
+              style={[styles.quantityButton, styles.plusButton]} 
+              onPress={() => handleAddToCart(item, index)}
+            >
+              <Icon name="add" size={18} color="#fff" />
+            </TouchableOpacity>
           </View>
+        ) : (
+          <TouchableOpacity 
+            style={[
+              styles.addButton,
+              hasSubscriptionAvailable(item) && !hasActiveSubscription(item.id) && styles.subscriptionAddButton,
+              hasActiveSubscription(item.id) && styles.subscribedAddButton
+            ]} 
+            onPress={() => handleAddToCart(item, index)}
+          >
+            <Icon name="add-shopping-cart" size={18} color="#fff" />
+            <Text style={styles.addButtonText}>
+              {hasActiveSubscription(item.id) 
+                ? "ADD" 
+                : hasSubscriptionAvailable(item) 
+                  ? "ADD / SUB" 
+                  : "ADD"
+              }
+            </Text>
+          </TouchableOpacity>
         )}
+        
+        {/* No separate subscribe button - subscription option appears in modal when clicking ADD */}
       </View>
     )
   }
 
   const renderFoodItem = ({ item, index }) => {
     return (
-      <Animated.View style={[styles.foodCard, { transform: [{ scale: itemAnimatedValues[index] || 1 }] }, colorScheme === 'dark' ? styles.foodCardDark : styles.foodCardLight]}>
+      <Animated.View style={[
+        styles.foodCard, 
+        { transform: [{ scale: itemAnimatedValues[index] || 1 }] },
+        colorScheme === 'dark' ? styles.foodCardDark : styles.foodCardLight
+      ]}>
         <View style={styles.foodItemContent}>
-          <View style={styles.foodDetails}>
-            <Text style={[styles.foodName, colorScheme === 'dark' ? styles.textDark : styles.textLight]} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <Text style={[styles.foodPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{(item.price || 0).toFixed(2)}</Text>
-            <Text style={[styles.foodDescription, colorScheme === 'dark' ? styles.descriptionDark : styles.descriptionLight]} numberOfLines={2}>
-              {item.description}
-            </Text>
-          </View>
           <View style={styles.foodImageContainer}>
             <Image
-              source={item.image ? { uri: item.image } : require("../assets/lemon.jpg")}
+              source={
+                imageErrors[item.id] || !item.image 
+                  ? require("../assets/lemon.jpg") 
+                  : { uri: item.image }
+              }
               style={styles.foodImage}
+              onError={(error) => {
+                setImageErrors(prev => ({ ...prev, [item.id]: true }));
+              }}
+              onLoad={() => {
+                setImageErrors(prev => ({ ...prev, [item.id]: false }));
+              }}
             />
-            <View style={styles.addButtonContainer}>{renderCartControl(item, index)}</View>
+            {/* Subscription Badge - only show for items with subscription available but not subscribed */}
+            {hasSubscriptionAvailable(item) && !hasActiveSubscription(item.id) && (
+              <View style={styles.subscriptionBadge}>
+                <Icon name="autorenew" size={12} color="#FFD700" />
+                <Text style={styles.subscriptionBadgeText}>SUB</Text>
+              </View>
+            )}
+          </View>
+          
+          <View style={styles.foodDetails}>
+            <View style={styles.foodNameContainer}>
+              <Text style={[styles.foodName, colorScheme === 'dark' ? styles.textDark : styles.textLight]} numberOfLines={2}>
+                {item.name}
+              </Text>
+              {/* Subscription Icon next to name for available subscriptions */}
+              {hasSubscriptionAvailable(item) && !hasActiveSubscription(item.id) && (
+                <Icon name="autorenew" size={16} color="#800000" style={styles.subscriptionIcon} />
+              )}
+              {/* Small green dot for subscribed items */}
+              {hasActiveSubscription(item.id) && (
+                <View style={styles.subscribedDot} />
+              )}
+            </View>
+            <Text style={[styles.foodDescription, colorScheme === 'dark' ? styles.descriptionDark : styles.descriptionLight]} numberOfLines={3}>
+              {item.description}
+            </Text>
+            <View style={styles.priceAndCartContainer}>
+              <View style={styles.priceSection}>
+                {(() => {
+                  const priceInfo = getPriceDisplay(item);
+                  
+                  if (priceInfo.hasSubscription) {
+                    // User has subscription - show discounted price without percentage
+                    return (
+                      <>
+                        <Text style={[styles.discountedPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                          ₹{priceInfo.discountedPrice.toFixed(2)}
+                        </Text>
+                        <Text style={styles.subscriberSavingsText}>
+                          Subscriber Price
+                        </Text>
+                      </>
+                    );
+                  } else {
+                    // No subscription - show regular price
+                    return (
+                      <>
+                        <Text style={[styles.foodPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                          ₹{priceInfo.regularPrice.toFixed(2)}
+                        </Text>
+                        {/* Subscription discount text below price */}
+                        {hasSubscriptionAvailable(item) && (
+                          <Text style={styles.subscriptionDiscountText}>
+                            Subscribe for Special Price
+                          </Text>
+                        )}
+                      </>
+                    );
+                  }
+                })()}
+              </View>
+              {renderCartControl(item, index)}
+            </View>
           </View>
         </View>
-        <View style={[styles.divider, colorScheme === 'dark' ? styles.dividerDark : styles.dividerLight]} />
       </Animated.View>
     )
   }
@@ -696,27 +980,30 @@ const Product = ({ route }) => {
         </View>
       )}
 
-      <View style={[styles.categoryWrapper, colorScheme === 'dark' ? styles.categoryWrapperDark : styles.categoryWrapperLight]}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryContainer}
-          style={styles.categoryScroll}
-        >
-          {categories?.map((category, index) => (
-            <Animated.View key={category.id} style={{ transform: [{ scale: categoryAnimatedValues[index] || 1 }] }}>
-              <TouchableOpacity
-                onPress={() => handleCategoryPress(category.id, index)}
-                style={[styles.categoryButton, selectedCategory === index && (colorScheme === 'dark' ? styles.selectedCategoryDark : styles.selectedCategory)]}
-              >
-                <Text style={[styles.categoryText, selectedCategory === index && styles.selectedCategoryText]}>
-                  {category.name}
-                </Text>
-              </TouchableOpacity>
-            </Animated.View>
-          ))}
-        </ScrollView>
-      </View>
+      {/* Hide category tabs when coming from specific category selection from Home screen */}
+      {!route.params?.categoryId && categories && categories.length > 1 && (
+        <View style={[styles.categoryWrapper, colorScheme === 'dark' ? styles.categoryWrapperDark : styles.categoryWrapperLight]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryContainer}
+            style={styles.categoryScroll}
+          >
+            {categories?.map((category, index) => (
+              <Animated.View key={category.id} style={{ transform: [{ scale: categoryAnimatedValues[index] || 1 }] }}>
+                <TouchableOpacity
+                  onPress={() => handleCategoryPress(category.id, index)}
+                  style={[styles.categoryButton, selectedCategory === index && (colorScheme === 'dark' ? styles.selectedCategoryDark : styles.selectedCategory)]}
+                >
+                  <Text style={[styles.categoryText, selectedCategory === index && styles.selectedCategoryText]}>
+                    {category.name}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <FlatList
         data={filteredItems}
@@ -751,6 +1038,119 @@ const Product = ({ route }) => {
           </View>
         </TouchableOpacity>
       )}
+
+      {/* Subscription Choice Modal */}
+      <Modal
+        visible={showSubscriptionModal && selectedItemForSubscription !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowSubscriptionModal(false)
+          setSelectedItemForSubscription(null)
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.subscriptionModalContainer, colorScheme === 'dark' ? styles.modalDark : styles.modalLight]}>
+            {selectedItemForSubscription && selectedItemForSubscription.item && (
+              <>
+                <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    Choose Your Option
+                  </Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setShowSubscriptionModal(false)
+                      setSelectedItemForSubscription(null)
+                    }}
+                    style={styles.closeButton}
+                  >
+                    <Icon name="close" size={24} color="#800000" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.modalContent}>
+                  <View style={styles.itemInfo}>
+                    <Image
+                      source={
+                        selectedItemForSubscription?.item?.image 
+                          ? { uri: selectedItemForSubscription.item.image }
+                          : require("../assets/lemon.jpg")
+                      }
+                      style={styles.modalItemImage}
+                    />
+                    <View style={styles.itemDetails}>
+                      <Text style={[styles.modalItemName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                        {selectedItemForSubscription?.item?.name || ''}
+                      </Text>
+                      <Text style={[styles.modalItemPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                        ₹{(selectedItemForSubscription?.item?.price || 0).toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.optionsContainer}>
+                    {/* Buy Normally Option */}
+                    <TouchableOpacity
+                      style={[styles.optionButton, styles.normalBuyButton]}
+                      onPress={async () => {
+                        setShowSubscriptionModal(false)
+                        if (selectedItemForSubscription?.item && selectedItemForSubscription?.index !== undefined) {
+                          await addItemToCart(selectedItemForSubscription.item, selectedItemForSubscription.index)
+                        }
+                        setSelectedItemForSubscription(null)
+                      }}
+                    >
+                      <View style={styles.optionContent}>
+                        <Icon name="shopping-cart" size={24} color="#fff" />
+                        <View style={styles.optionText}>
+                          <Text style={styles.optionTitle}>Buy Now</Text>
+                          <Text style={styles.optionSubtitle}>
+                            Pay ₹{(selectedItemForSubscription?.item?.price || 0).toFixed(2)}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Subscribe First Option */}
+                    <TouchableOpacity
+                      style={[styles.optionButton, styles.subscribeFirstButton]}
+                      onPress={() => {
+                        setShowSubscriptionModal(false)
+                        if (selectedItemForSubscription?.item) {
+                          navigation.navigate('SubscriptionOrder', { product: selectedItemForSubscription.item })
+                        }
+                        setSelectedItemForSubscription(null)
+                      }}
+                    >
+                      <View style={styles.optionContent}>
+                        <Icon name="autorenew" size={24} color="#800000" />
+                        <View style={styles.optionText}>
+                          <Text style={styles.subscribeOptionTitle}>Subscribe First</Text>
+                          <Text style={styles.subscribeOptionSubtitle}>
+                            Choose from multiple plans
+                          </Text>
+                          <Text style={styles.subscribeOptionBenefit}>
+                            Then get special pricing on future orders!
+                          </Text>
+                        </View>
+                        <View style={styles.savingsBadge}>
+                          <Text style={styles.savingsText}>
+                            SPECIAL PRICE
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={[styles.modalNote, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    💡 Subscribe once and enjoy special pricing on all future orders of this item!
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -920,13 +1320,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   menuContainer: {
-    padding: 0,
+    padding: 8,
     paddingBottom: 80,
   },
   foodCard: {
-    marginBottom: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    marginHorizontal: 8,
+    marginVertical: 6,
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    minHeight: 120, // Reduced height since UI is now simpler
   },
   foodCardLight: {
     backgroundColor: "#fff",
@@ -936,161 +1343,170 @@ const styles = StyleSheet.create({
   },
   foodItemContent: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  foodImageContainer: {
+    width: 120,
+    height: 120,
+    marginRight: 16,
+    position: 'relative',
+  },
+  foodImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
+    resizeMode: "cover",
+  },
+  subscriptionBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#800000', // Changed to maroon
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+    minWidth: 45,
+    justifyContent: 'center',
+  },
+  subscriptionBadgeText: {
+    color: '#FFD700', // Gold text on maroon background
+    fontSize: 9,
+    fontWeight: '700',
+    marginLeft: 2,
+    textAlign: 'center',
+  },
+  subscribedBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#28a745', // Green for subscribed
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+    minWidth: 70,
+    justifyContent: 'center',
+  },
+  subscribedBadgeText: {
+    color: '#FFD700', // Gold text on green background
+    fontSize: 8,
+    fontWeight: '700',
+    marginLeft: 2,
+    textAlign: 'center',
   },
   foodDetails: {
     flex: 1,
-    marginRight: 16,
     justifyContent: "space-between",
+    minHeight: 100, // Reduced minimum height
+  },
+  foodNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   foodName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "700",
-    marginBottom: 8,
+    lineHeight: 22,
+    flex: 1,
   },
-  foodPrice: {
-    fontSize: 14,
-    fontWeight: "700",
-    marginBottom: 8,
+  subscriptionIcon: {
+    marginLeft: 6,
+  },
+  subscribedDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#28a745',
+    marginLeft: 6,
+    marginTop: 6,
   },
   foodDescription: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  foodImageContainer: {
-    width: 118,
-    alignItems: "center",
-  },
-  foodImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-    resizeMode: "cover",
-  },
-  addButtonContainer: {
-    position: "absolute",
-    bottom: -10,
-    width: "100%",
-    alignItems: "center",
-  },
-  divider: {
-    height: 1,
-    marginTop: 16,
-  },
-  dividerLight: {
-    backgroundColor: "#e5e7eb",
-  },
-  dividerDark: {
-    backgroundColor: "#444",
-  },
-  cartControl: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "#800000",
-    overflow: "hidden",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  cartControlLight: {
-    backgroundColor: "#fff",
-  },
-  cartControlDark: {
-    backgroundColor: "#2a2a2a",
-  },
-  quantityText: {
-    color: "#FFD700",
     fontSize: 14,
-    fontWeight: "bold",
-    minWidth: 24,
-    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 12,
+    flex: 1,
   },
-  addButtonText: {
-    color: "#FFD700",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  subscribeButton: {
-    backgroundColor: "#FFD700",
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderRadius: 15,
+  priceAndCartContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-    shadowColor: "#FFD700",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    justifyContent: "space-between",
+    alignItems: "flex-end", // Changed to flex-end to align button to bottom
+    marginTop: 8, // Added margin to give more space
   },
-  subscribeButtonLight: {
-    backgroundColor: "#FFD700",
+  priceSection: {
+    flex: 1,
+    marginRight: 8, // Added margin to separate from button
   },
-  subscribeButtonDark: {
-    backgroundColor: "#FFA500",
-  },
-  subscribeButtonText: {
+  foodPrice: {
+    fontSize: 20,
+    fontWeight: "800",
     color: "#800000",
+  },
+  subscriptionDiscountText: {
+    fontSize: 11,
+    color: "#28a745",
     fontWeight: "600",
-    fontSize: 10,
+    marginTop: 2,
   },
-  addButtonContainer: {
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 6,
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
   },
-  addButton: {
-    backgroundColor: "#FFD700",
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    shadowColor: "#FFD700",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+  originalPrice: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#999",
+    textDecorationLine: 'line-through',
+    marginRight: 8,
   },
-  addButtonLight: {
-    backgroundColor: "#FFD700",
+  discountedPrice: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#28a745", // Green for discounted price
   },
-  addButtonDark: {
-    backgroundColor: "#FFA500",
+  subscriberSavingsText: {
+    fontSize: 11,
+    color: "#28a745",
+    fontWeight: "600",
+    marginTop: 2,
   },
-  addButtonText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 12,
+  // Cart Control Styles
+  cartControlContainer: {
+    alignItems: "flex-end",
+    justifyContent: "flex-end", // Ensure button stays at bottom
+    minHeight: 40, // Minimum height for button area
   },
   quantityContainer: {
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 6,
-  },
-  quantityControls: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#f8f9fa",
-    borderRadius: 20,
-    padding: 2,
+    borderRadius: 25,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   quantityButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
@@ -1100,113 +1516,74 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   minusButton: {
-    backgroundColor: "#ff4444",
+    backgroundColor: "#ff6b6b",
   },
   plusButton: {
-    backgroundColor: "#4CAF50",
+    backgroundColor: "#51cf66",
   },
   quantityDisplay: {
-    minWidth: 40,
+    minWidth: 45,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-  quantityDisplayLight: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  quantityDisplayDark: {
-    backgroundColor: "#2a2a2a",
-    borderWidth: 1,
-    borderColor: "#444",
-  },
   quantityText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
     color: "#333",
   },
-  quantityTextLight: {
-    color: "#333",
+  addButton: {
+    backgroundColor: "#800000",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 25,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    shadowColor: "#800000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 5,
   },
-  quantityTextDark: {
-    color: "#fff",
+  addButtonText: {
+    color: "#FFD700", // Keep gold text
+    fontWeight: "700",
+    fontSize: 14,
   },
-  stockInfoContainer: {
+  subscriptionAddButton: {
+    backgroundColor: "#800000", // Changed from yellow to maroon
+    borderWidth: 2,
+    borderColor: "#FFD700", // Gold border for subscription items
+  },
+  subscribedAddButton: {
+    backgroundColor: "#28a745", // Green for subscribed users
+    borderWidth: 2,
+    borderColor: "#FFD700", // Gold border
+  },
+  subscribeButton: {
+    backgroundColor: "#FFD700",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "rgba(0,0,0,0.05)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    marginTop: 8,
+    shadowColor: "#FFD700",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
-  stockCountText: {
-    fontSize: 10,
+  subscribeButtonText: {
+    color: "#800000",
     fontWeight: "600",
-    textAlign: "center",
-  },
-  outOfStockContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#ffebee",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#ffcdd2",
-  },
-  outOfStockContainerLight: {
-    backgroundColor: "#ffebee",
-    borderColor: "#ffcdd2",
-  },
-  outOfStockContainerDark: {
-    backgroundColor: "#3a1f1f",
-    borderColor: "#5d2a2a",
-  },
-  outOfStockButton: {
-    backgroundColor: "#f5f5f5",
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  outOfStockButtonLight: {
-    backgroundColor: "#f5f5f5",
-    borderColor: "#e0e0e0",
-  },
-  outOfStockButtonDark: {
-    backgroundColor: "#3a3a3a",
-    borderColor: "#555",
-  },
-  outOfStockText: {
-    color: "#999",
-    fontWeight: "700",
-    fontSize: 10,
-  },
-  outOfStockTextLight: {
-    color: "#999",
-  },
-  outOfStockTextDark: {
-    color: "#666",
-  },
-  lowStockButton: {
-    backgroundColor: "#fff3cd",
-    borderWidth: 1,
-    borderColor: "#ffeaa7",
-  },
-  lowStockText: {
-    color: "#856404",
-  },
-  quantityButtonDisabled: {
-    opacity: 0.5,
-  },
-  quantityButtonTextDisabled: {
-    color: "#ccc",
+    fontSize: 11,
+    textAlign: 'center',
   },
   viewCartButton: {
     position: "absolute",
@@ -1378,6 +1755,148 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     marginLeft: 5,
+  },
+  // Subscription Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  subscriptionModalContainer: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalLight: {
+    backgroundColor: '#fff',
+  },
+  modalDark: {
+    backgroundColor: '#2a2a2a',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalContent: {
+    alignItems: 'center',
+  },
+  itemInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    width: '100%',
+  },
+  modalItemImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  itemDetails: {
+    flex: 1,
+  },
+  modalItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  modalItemPrice: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#800000',
+  },
+  optionsContainer: {
+    width: '100%',
+    gap: 12,
+    marginBottom: 16,
+  },
+  optionButton: {
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  normalBuyButton: {
+    backgroundColor: '#800000',
+  },
+  subscribeFirstButton: {
+    backgroundColor: '#FFD700',
+    borderWidth: 2,
+    borderColor: '#800000',
+  },
+  optionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  optionText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  optionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  optionSubtitle: {
+    fontSize: 14,
+    color: '#FFD700',
+  },
+  subscribeOptionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#800000',
+    marginBottom: 4,
+  },
+  subscribeOptionSubtitle: {
+    fontSize: 14,
+    color: '#800000',
+    marginBottom: 2,
+  },
+  subscribeOptionBenefit: {
+    fontSize: 12,
+    color: '#28a745',
+    fontWeight: '600',
+  },
+  savingsBadge: {
+    backgroundColor: '#28a745',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  savingsText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modalNote: {
+    fontSize: 12,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    opacity: 0.8,
   },
 })
 

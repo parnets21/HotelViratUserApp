@@ -86,6 +86,8 @@ const Login = () => {
     return () => clearTimeout(timer);
   }, [resendDisabled, resendTimer]);
 
+
+
   const handleSendOtp = async () => {
     if (mobile.length !== 10) {
       showToast("Please enter a valid 10-digit mobile number", 'error');
@@ -94,15 +96,26 @@ const Login = () => {
 
     setIsSendingOtp(true);
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/user-auth/login/send-otp', {
+      console.log("📱 Sending OTP to:", mobile);
+      console.log("🌐 Using URL:", 'https://hotelvirat.com/api/v1/hotel/user-auth/login/send-otp');
+      
+      const requestBody = JSON.stringify({ mobile });
+      console.log("📦 Request body:", requestBody);
+      
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/login/send-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ mobile }),
+        body: requestBody,
       });
 
+      console.log("📡 OTP Response status:", response.status);
+      console.log("📡 OTP Response headers:", response.headers);
+      
       const data = await response.json();
+      console.log("📡 OTP Response data:", data);
+      
       if (response.ok) {
         setOtpSent(true);
         startResendTimer();
@@ -111,10 +124,22 @@ const Login = () => {
           showToast(`Your OTP is ${data.otp}`, 'success', true);
         }, 3000);
       } else {
-        showToast(data.message, 'error');
+        console.error("❌ OTP send failed:", data.message);
+        // Show the exact error message from backend
+        if (data.message === "User not found. Please register first.") {
+          showToast("User not found. Please register first.", 'error');
+        } else {
+          showToast(data.message || "Failed to send OTP", 'error');
+        }
       }
     } catch (error) {
-      showToast("Error sending OTP", 'error');
+      console.error("❌ OTP send error:", error);
+      console.error("❌ Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      showToast("Network error. Please check your connection.", 'error');
     } finally {
       setIsSendingOtp(false);
     }
@@ -123,7 +148,7 @@ const Login = () => {
   const handleResendOtp = async () => {
     setIsSendingOtp(true);
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/user-auth/login/resend-otp', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/login/resend-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -151,7 +176,8 @@ const Login = () => {
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try {
-      const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/user-auth/verify-otp', {
+      console.log("🔐 Verifying OTP for mobile:", mobile, "OTP:", otp);
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/verify-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -159,17 +185,22 @@ const Login = () => {
         body: JSON.stringify({ mobile, otp }),
       });
 
+      console.log("🔐 Login Response status:", response.status);
       const data = await response.json();
+      console.log("🔐 Login Response data:", data);
+      
       if (response.ok) {
         await AsyncStorage.setItem('userId', data.user._id);
-        console.log('User ID:', data.user._id);
+        console.log('✅ User ID saved:', data.user._id);
         showToast("Login successful!");
         login();
       } else {
-        showToast(data.message, 'error');
+        console.error("❌ Login failed:", data.message);
+        showToast(data.message || "Login failed", 'error');
       }
     } catch (error) {
-      showToast("Error verifying OTP", 'error');
+      console.error("❌ Login error:", error);
+      showToast("Network error. Please check your connection.", 'error');
     } finally {
       setIsLoggingIn(false);
     }
@@ -192,7 +223,7 @@ const Login = () => {
       >
         <View style={styles.logoContainer}>
           <Image 
-            source={require('../assets/logo4.jpeg')} 
+            source={require('../assets/new-virat-logo.jpeg')} 
             style={styles.logo} 
             resizeMode="contain"
           />
@@ -283,6 +314,7 @@ const Login = () => {
           >
             <Text style={styles.secondaryButtonText}>Create New Account</Text>
           </TouchableOpacity>
+
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

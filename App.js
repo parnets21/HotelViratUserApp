@@ -15,13 +15,16 @@ import Profile from "./src/Screens/Profile";
 import Login from "./src/Screens/Login";
 import Registration from "./src/Screens/Registration";
 import EditProfile from "./src/Screens/EditProfile";
+import MyTableReservations from "./src/Screens/MyTableReservations";
 import Subscription from "./src/Screens/Subscription";
 import SubscriptionOrder from "./src/Screens/SubscriptionOrder";
 import MySubscriptions from "./src/Screens/MySubscriptions";
 import RoomBooking from "./src/Screens/RoomBooking";
+import TableBooking from "./src/Screens/TableBooking";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import PrivacyPolicy from "./src/Screens/PrivacyPolicy";
 import TermsConditions from "./src/Screens/TermsConditions";
+import testNetworkConnectivity from "./network-test";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -34,6 +37,7 @@ function MainStackScreen() {
       <Stack.Screen name="MyCart" component={MyCart} />
       <Stack.Screen name="Subscription" component={Subscription} />
       <Stack.Screen name="SubscriptionOrder" component={SubscriptionOrder} /> 
+      <Stack.Screen name="TableBooking" component={TableBooking} />
       <Stack.Screen
         name="CheckOut"
         component={CheckOut}
@@ -82,7 +86,7 @@ function TabNavigator() {
 
 function AppContent() {
   const { isLoggedIn, login, logout } = useAuth();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Set to false immediately
   const [colorScheme, setColorScheme] = useState(Appearance.getColorScheme());
 
   useEffect(() => {
@@ -92,21 +96,52 @@ function AppContent() {
     return () => subscription.remove();
   }, []);
 
+  // useEffect(() => {
+  //   const checkAuthStatus = async () => {
+  //     try {
+  //       console.log("🔍 Checking auth status...");
+  //       const userId = await AsyncStorage.getItem('userId');
+  //       console.log("👤 User ID from storage:", userId);
+  //       if (userId) {
+  //         console.log("✅ User found, logging in...");
+  //         login();
+  //       } else {
+  //         console.log("❌ No user found");
+  //       }
+  //     } catch (error) {
+  //       console.error("❌ Failed to check auth status:", error);
+  //     } finally {
+  //       console.log("🏁 Setting loading to false");
+  //       setIsLoading(false);
+  //     }
+  //   };
+
+  //   // Very short timeout to prevent infinite loading
+  //   const timeoutId = setTimeout(() => {
+  //     console.log("⏰ Auth check timeout - proceeding anyway");
+  //     setIsLoading(false);
+  //   }, 200); // 0.2 second timeout (extremely short)
+
+  //   checkAuthStatus().then(() => {
+  //     clearTimeout(timeoutId);
+  //   });
+
+  //   return () => clearTimeout(timeoutId);
+  // }, [login]);
+
+  // Simplified auth check - just check AsyncStorage without network calls
   useEffect(() => {
-    const checkAuthStatus = async () => {
+    const quickAuthCheck = async () => {
       try {
         const userId = await AsyncStorage.getItem('userId');
         if (userId) {
           login();
         }
       } catch (error) {
-        console.error("Failed to check auth status:", error);
-      } finally {
-        setIsLoading(false);
+        console.error("Auth check error:", error);
       }
     };
-
-    checkAuthStatus();
+    quickAuthCheck();
   }, [login]);
 
   if (isLoading) {
@@ -131,6 +166,7 @@ function AppContent() {
                 component={TabNavigator}
               />
               <Stack.Screen name="EditProfile" component={EditProfile} />
+              <Stack.Screen name="MyTableReservations" component={MyTableReservations} />
               <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicy} />
               <Stack.Screen name="TermsCondition" component={TermsConditions} />
             </>

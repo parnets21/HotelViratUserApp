@@ -24,9 +24,6 @@ const MyCart = () => {
   const [branchId, setBranchId] = useState(null)
   const [branchDetails, setBranchDetails] = useState(null)
   const [colorScheme, setColorScheme] = useState(Appearance.getColorScheme())
-  const [itemStocks, setItemStocks] = useState({}) // Track stock for each item
-  const [stocksLoading, setStocksLoading] = useState(false) // Track stock loading state
-  const [enableStockCheck, setEnableStockCheck] = useState(false) // Disable stock checks by default for better performance
 
   // Listen for system theme changes
   useEffect(() => {
@@ -52,50 +49,6 @@ const MyCart = () => {
     getUserId()
   }, [])
 
-  // Fetch stock information for all cart items (non-blocking)
-  const fetchItemStocks = async (items) => {
-    if (!items || items.length === 0) return
-    
-    setStocksLoading(true)
-    try {
-      // Use Promise.allSettled to prevent one failure from breaking all
-      const stockPromises = items.map(async (item) => {
-        try {
-          const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
-          
-          const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/menu/${item.id}`, {
-            signal: controller.signal
-          })
-          clearTimeout(timeoutId)
-          
-          const productData = await response.json()
-          return { itemId: item.id, stock: productData.stock || 0 }
-        } catch (error) {
-          console.log(`Failed to fetch stock for item ${item.id}:`, error.message)
-          return { itemId: item.id, stock: 0 } // Default to 0 if fetch fails
-        }
-      })
-      
-      const stockResults = await Promise.allSettled(stockPromises)
-      const stockMap = {}
-      
-      stockResults.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          const { itemId, stock } = result.value
-          stockMap[itemId] = stock
-        }
-      })
-      
-      setItemStocks(stockMap)
-    } catch (error) {
-      console.error('Error fetching item stocks:', error)
-      // Don't block the UI if stock fetching fails
-    } finally {
-      setStocksLoading(false)
-    }
-  }
-
   // Fetch cart data from server
   useEffect(() => {
     const fetchCartData = async () => {
@@ -112,7 +65,7 @@ const MyCart = () => {
         }, 10000) // 10 second timeout
         
         // Get branch ID for the selected branch index
-        const branchesResponse = await fetch('http://192.168.1.24:9000/api/v1/hotel/branch', {
+        const branchesResponse = await fetch('https://hotelvirat.com/api/v1/hotel/branch', {
           signal: controller.signal
         })
         
@@ -148,7 +101,7 @@ const MyCart = () => {
           cartController.abort()
         }, 8000) // 8 second timeout
         
-        const cartResponse = await fetch(`http://192.168.1.24:9000/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`, {
+        const cartResponse = await fetch(`https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`, {
           signal: cartController.signal
         })
         
@@ -163,20 +116,39 @@ const MyCart = () => {
         
         if (cartData && cartData.items && cartData.items.length > 0) {
           // Update local cart state with server data
-          const formattedItems = cartData.items.map(item => ({
-            id: item.menuItemId,
-            name: item.name,
-            price: item.price || 0,
-            quantity: item.quantity,
-            image: item.image ? (item.image.startsWith('http') ? item.image : `http://192.168.1.24:9000${item.image.startsWith('/') ? '' : '/'}${item.image}`) : null
-          }))
-          console.log('Formatted cart items:', formattedItems)
+          const formattedItems = cartData.items.map(item => {
+            // Construct image URL - use production server where images are hosted
+            let imageUrl = null;
+            if (item.image) {
+              if (item.image.startsWith('http')) {
+                imageUrl = item.image;
+              } else {
+                // Use production server where images are actually hosted
+                const prodBaseUrl = "https://hotelvirat.com";
+                let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
+                
+                if (cleanPath.startsWith("/")) {
+                  imageUrl = `${prodBaseUrl}${cleanPath}`;
+                } else if (cleanPath.startsWith("uploads/")) {
+                  imageUrl = `${prodBaseUrl}/${cleanPath}`;
+                } else {
+                  // Assume it's just a filename in uploads/menu/
+                  const filename = cleanPath.split("/").pop();
+                  imageUrl = `${prodBaseUrl}/uploads/menu/${filename}`;
+                }
+              }
+            }
+            
+            return {
+              id: item.menuItemId,
+              name: item.name,
+              price: item.price || 0,
+              quantity: item.quantity,
+              image: imageUrl
+            };
+          })
+          console.log('Formatted cart items with prices:', formattedItems.map(item => ({ name: item.name, price: item.price })))
           setCartItems(formattedItems)
-          
-          // Fetch stock information in background (non-blocking)
-          setTimeout(() => {
-            fetchItemStocks(formattedItems)
-          }, 100) // Small delay to let UI render first
         } else {
           console.log('No cart items found or empty cart')
           setCartItems([])
@@ -201,74 +173,11 @@ const handleIncreaseQuantity = async (item) => {
     if (!userId || !branchId) return
     
     try {
-      // Skip stock checking if disabled for better performance
-      if (!enableStockCheck) {
-        // Update local cart state
-        addToCart(selectedBranch, item, 1)
-        
-        // Update server cart
-        await fetch('http://192.168.1.24:9000/api/v1/hotel/cart/update', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: userId,
-            branchId: branchId,
-            menuItemId: item.id,
-            quantity: item.quantity + 1
-          }),
-        })
-        
-        // Update local cart items
-        setCartItems(prevItems => 
-          prevItems.map(cartItem => 
-            cartItem.id === item.id 
-              ? { ...cartItem, quantity: cartItem.quantity + 1 } 
-              : cartItem
-          )
-        )
-        return
-      }
-      
-      // First, fetch current stock for this item with timeout
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
-      
-      const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/menu/${item.id}`, {
-        signal: controller.signal
-      })
-      clearTimeout(timeoutId)
-      
-      const productData = await response.json()
-      
-      if (!productData.stock && productData.stock !== 0) {
-        alert('❌ Unable to check stock availability. Please try again.')
-        return
-      }
-      
-      // Check if product is completely out of stock
-      if (productData.stock <= 0) {
-        alert(`❌ Product is OUT OF STOCK!\n\nThis item is no longer available.`)
-        return
-      }
-      
-      // Check if adding one more would exceed available stock
-      if (item.quantity >= productData.stock) {
-        alert(`❌ No more items available!\n\nOnly ${productData.stock} items in stock and you already have ${item.quantity} in your cart.`)
-        return
-      }
-      
-      // Show warning if this is the last available item
-      if (item.quantity === productData.stock - 1) {
-        alert(`⚠️ Last item available!\n\nThis is the last ${item.name} in stock. Adding this will make it out of stock.`)
-      }
-      
       // Update local cart state
       addToCart(selectedBranch, item, 1)
       
       // Update server cart
-      await fetch('http://192.168.1.24:9000/api/v1/hotel/cart/update', {
+      await fetch('https://hotelvirat.com/api/v1/hotel/cart/update', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -289,20 +198,8 @@ const handleIncreaseQuantity = async (item) => {
             : cartItem
         )
       )
-      
-      // Update stock information for this item
-      setItemStocks(prevStocks => ({
-        ...prevStocks,
-        [item.id]: productData.stock
-      }))
-      
     } catch (error) {
-      if (error.name === 'AbortError') {
-        alert('❌ Request timed out. Please check your connection and try again.')
-      } else {
-        console.error('Error increasing item quantity:', error)
-        alert('❌ Error updating quantity. Please try again.')
-      }
+      console.error('Error increasing item quantity:', error)
     }
   }
 
@@ -315,7 +212,7 @@ const handleIncreaseQuantity = async (item) => {
       
       if (item.quantity <= 1) {
         // Remove item completely
-        await fetch(`http://192.168.1.24:9000/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`, {
+        await fetch(`https://hotelvirat.com/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`, {
           method: 'DELETE',
         })
         
@@ -323,7 +220,7 @@ const handleIncreaseQuantity = async (item) => {
         setCartItems(prevItems => prevItems.filter(cartItem => cartItem.id !== item.id))
       } else {
         // Update quantity
-        await fetch('http://192.168.1.24:9000/api/v1/hotel/cart/update', {
+        await fetch('https://hotelvirat.com/api/v1/hotel/cart/update', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -362,7 +259,7 @@ const handleIncreaseQuantity = async (item) => {
       removeFromCart(selectedBranch, itemId, item.quantity)
       
       // Remove from server
-      await fetch(`http://192.168.1.24:9000/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${itemId}`, {
+      await fetch(`https://hotelvirat.com/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${itemId}`, {
         method: 'DELETE',
       })
       
@@ -392,7 +289,7 @@ const handleIncreaseQuantity = async (item) => {
               clearBranchCart(selectedBranch)
               
               // Clear server cart
-              await fetch(`http://192.168.1.24:9000/api/v1/hotel/cart/clear?userId=${userId}&branchId=${branchId}`, {
+              await fetch(`https://hotelvirat.com/api/v1/hotel/cart/clear?userId=${userId}&branchId=${branchId}`, {
                 method: 'DELETE',
               })
               
@@ -409,10 +306,6 @@ const handleIncreaseQuantity = async (item) => {
   }
 
   const renderItem = ({ item }) => {
-    const currentStock = itemStocks[item.id] !== undefined ? itemStocks[item.id] : item.stock
-    const availableStock = currentStock - item.quantity
-    const canIncrease = availableStock > 0 && currentStock > 0
-    
     return (
       <View style={[styles.cartItem, colorScheme === 'dark' ? styles.cartItemDark : styles.cartItemLight]}>
         <Image 
@@ -428,44 +321,16 @@ const handleIncreaseQuantity = async (item) => {
           </View>
           <Text style={[styles.itemPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{item.price.toFixed(2)}</Text>
           
-          {/* Stock Information */}
-          <View style={styles.stockInfo}>
-            {stocksLoading ? (
-              <>
-                <ActivityIndicator size="small" color="#666" />
-                <Text style={styles.stockText}>Loading stock...</Text>
-              </>
-            ) : (
-              <>
-                <Icon name="inventory" size={12} color={currentStock <= 0 ? "#ff4444" : (availableStock <= 2 ? "#ff6b35" : "#4CAF50")} />
-                <Text style={[
-                  styles.stockText,
-                  { color: currentStock <= 0 ? "#ff4444" : (availableStock <= 2 ? "#ff6b35" : "#4CAF50") }
-                ]}>
-                  {currentStock <= 0 ? "OUT OF STOCK" : (availableStock <= 0 ? "No more left" : `${availableStock} left`)}
-                </Text>
-              </>
-            )}
-          </View>
-          
           <View style={styles.quantityControl}>
             <TouchableOpacity style={[styles.quantityButton, colorScheme === 'dark' ? styles.quantityButtonDark : styles.quantityButtonLight]} onPress={() => handleDecreaseQuantity(item)}>
               <Text style={styles.quantityButtonText}>-</Text>
             </TouchableOpacity>
             <Text style={[styles.quantityText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>{item.quantity}</Text>
             <TouchableOpacity 
-              style={[
-                styles.quantityButton, 
-                colorScheme === 'dark' ? styles.quantityButtonDark : styles.quantityButtonLight,
-                !canIncrease && styles.quantityButtonDisabled
-              ]} 
+              style={[styles.quantityButton, colorScheme === 'dark' ? styles.quantityButtonDark : styles.quantityButtonLight]} 
               onPress={() => handleIncreaseQuantity(item)}
-              disabled={!canIncrease}
             >
-              <Text style={[
-                styles.quantityButtonText,
-                !canIncrease && styles.quantityButtonTextDisabled
-              ]}>+</Text>
+              <Text style={styles.quantityButtonText}>+</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -526,7 +391,7 @@ const handleIncreaseQuantity = async (item) => {
                 setError(null)
                 
                 try {
-                  const branchesResponse = await fetch('http://192.168.1.24:9000/api/v1/hotel/branch')
+                  const branchesResponse = await fetch('https://hotelvirat.com/api/v1/hotel/branch')
                   const branchesData = await branchesResponse.json()
                   
                   if (!Array.isArray(branchesData) || branchesData.length === 0) {
@@ -548,17 +413,41 @@ const handleIncreaseQuantity = async (item) => {
                     address: branchesData[selectedBranch].address
                   })
                   
-                  const cartResponse = await fetch(`http://192.168.1.24:9000/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`)
+                  const cartResponse = await fetch(`https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`)
                   const cartData = await cartResponse.json()
                   
                   if (cartData && cartData.items) {
-                    const formattedItems = cartData.items.map(item => ({
-                      id: item.menuItemId,
-                      name: item.name,
-                      price: item.price || 0,
-                      quantity: item.quantity,
-                      image: item.image ? (item.image.startsWith('http') ? item.image : `http://192.168.1.24:9000${item.image.startsWith('/') ? '' : '/'}${item.image}`) : null
-                    }))
+                    const formattedItems = cartData.items.map(item => {
+                      // Construct image URL - use production server where images are hosted
+                      let imageUrl = null;
+                      if (item.image) {
+                        if (item.image.startsWith('http')) {
+                          imageUrl = item.image;
+                        } else {
+                          // Use production server where images are actually hosted
+                          const prodBaseUrl = "https://hotelvirat.com";
+                          let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
+                          
+                          if (cleanPath.startsWith("/")) {
+                            imageUrl = `${prodBaseUrl}${cleanPath}`;
+                          } else if (cleanPath.startsWith("uploads/")) {
+                            imageUrl = `${prodBaseUrl}/${cleanPath}`;
+                          } else {
+                            // Assume it's just a filename in uploads/menu/
+                            const filename = cleanPath.split("/").pop();
+                            imageUrl = `${prodBaseUrl}/uploads/menu/${filename}`;
+                          }
+                        }
+                      }
+                      
+                      return {
+                        id: item.menuItemId,
+                        name: item.name,
+                        price: item.price || 0,
+                        quantity: item.quantity,
+                        image: imageUrl
+                      };
+                    })
                     setCartItems(formattedItems)
                   } else {
                     setCartItems([])
@@ -917,23 +806,6 @@ const styles = StyleSheet.create({
     color: "#FFD700",
     fontSize: 16,
     fontWeight: "700",
-  },
-  stockInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 8,
-  },
-  stockText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  quantityButtonDisabled: {
-    opacity: 0.5,
-    backgroundColor: "#ccc",
-  },
-  quantityButtonTextDisabled: {
-    color: "#999",
   },
 })
 

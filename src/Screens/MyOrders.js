@@ -562,7 +562,7 @@ const MyOrders = () => {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/order/user/${userId}`);
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/order/user/${userId}`);
       const data = await response.json();
       if (response.ok) {
         setOrders(data);
@@ -635,7 +635,7 @@ const MyOrders = () => {
 
     setLoading(true);
     try {
-      const response = await fetch(`http://192.168.1.24:9000/api/v1/hotel/order/${orderToCancel._id}/status`, {
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/order/${orderToCancel._id}/status`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

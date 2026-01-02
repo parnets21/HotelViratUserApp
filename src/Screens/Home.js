@@ -20,10 +20,17 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
 import { useCart } from "../context/CartContext";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MealOfTheDayCard from '../components/MealOfTheDayCard';
-import MealOfTheDayPopup from '../components/MealOfTheDayPopup';
+// import MealOfTheDayCard from '../components/MealOfTheDayCard';
+// import MealOfTheDayPopup from '../components/MealOfTheDayPopup';
+import BookTableCard from '../components/BookTableCard';
 
 const { width } = Dimensions.get("window");
+
+// Force clear image cache
+const clearImageCache = () => {
+  console.log("🧹 Clearing image cache to force fresh image loads");
+  // This will help ensure fresh images are loaded
+};
 
 const Home = () => {
   const navigation = useNavigation();
@@ -32,14 +39,16 @@ const Home = () => {
   
   const [branches, setBranches] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [failedImages, setFailedImages] = useState(new Set());
   const [menuItems, setMenuItems] = useState({});
   const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState(null);
   const [error, setError] = useState(null);
   const [colorScheme, setColorScheme] = useState(Appearance.getColorScheme());
-  const [showMealPopup, setShowMealPopup] = useState(false);
+  // const [showMealPopup, setShowMealPopup] = useState(false);
   const [buttonAnimation] = useState(new Animated.Value(0));
+  const [showTooltip, setShowTooltip] = useState({ meal: false, table: false });
 
   // Listen for system theme changes
   useEffect(() => {
@@ -49,8 +58,9 @@ const Home = () => {
     return () => subscription.remove();
   }, []);
 
-  // Animate floating button when app opens
+  // Initialize animation
   useEffect(() => {
+    // Animate floating button when app opens
     // Delay animation by 1 second after app loads
     const timer = setTimeout(() => {
       Animated.sequence([
@@ -90,108 +100,325 @@ const Home = () => {
     getUserId();
   }, []);
 
-  // Fetch branches
+  // Fetch branches from backend API
   useEffect(() => {
     const fetchBranches = async () => {
+      console.log("🌐 Fetching branches from backend...");
+      
       try {
-        const response = await fetch('http://192.168.1.24:9000/api/v1/hotel/branch');
-        const data = await response.json();
+        const response = await fetch('https://hotelvirat.com/api/v1/hotel/branch');
         
-        if (Array.isArray(data) && data.length > 0) {
-          setBranches(data.map(branch => ({
-            id: branch._id,
-            name: branch.name,
-            address: branch.address,
-          })));
+        if (response.ok) {
+          const branchesData = await response.json();
+          console.log("✅ Raw API Response:", JSON.stringify(branchesData, null, 2));
+          
+          // API returns an array of branches
+          if (Array.isArray(branchesData) && branchesData.length > 0) {
+            const processedBranches = branchesData.map(branch => ({
+              id: branch._id,
+              name: branch.name,
+              address: branch.address,
+              image: branch.image,
+              contact: branch.contact,
+              openingHours: branch.openingHours
+            }));
+            
+            console.log("✅ Processed branches array:", processedBranches);
+            setBranches(processedBranches);
+            
+            // Set selectedBranch to 0 to show the first branch
+            if (selectedBranch === null || selectedBranch === undefined) {
+              setSelectedBranch(0);
+              console.log("✅ selectedBranch set to 0");
+            }
+          } else {
+            console.log("⚠️ No branches found in API response");
+            setBranches([{
+              id: 'default-branch',
+              name: 'Hotel Virat',
+              address: 'Main Location'
+            }]);
+          }
+          
         } else {
-          setError('No branches found');
+          console.log("⚠️ Using default branch");
+          setBranches([{
+            id: 'default-branch',
+            name: 'Hotel Virat',
+            address: 'Main Location'
+          }]);
         }
       } catch (error) {
-        console.error('Error fetching branches:', error);
-        setError('Failed to load branches');
+        console.log("❌ Error fetching branches:", error.message);
+        setBranches([{
+          id: 'default-branch',
+          name: 'Hotel Virat',
+          address: 'Main Location'
+        }]);
       }
     };
     
     fetchBranches();
   }, []);
 
-  // Fetch categories, menu items, and offers for selected branch
+  // Fetch categories, menu items, and offers for selected branch - FETCH FROM ADMIN PANEL
   useEffect(() => {
     const fetchData = async () => {
       if (!branches.length) return;
       
+      console.log("🍽️ Fetching menu data from admin panel...");
       setLoading(true);
+      setError(null);
+      
+      // Clear image cache to ensure fresh images
+      clearImageCache();
+      
       try {
-        // Get branch ID from the branches array
-        const branchId = branches[selectedBranch]?.id;
+        // Fetch categories from admin panel backend
+        console.log("📋 Fetching categories from backend...");
+        console.log("📋 Categories URL:", 'https://hotelvirat.com/api/v1/hotel/category');
+        const categoriesResponse = await fetch('https://hotelvirat.com/api/v1/hotel/category');
         
-        if (!branchId) {
-          setLoading(false);
-          return;
+        console.log("📋 Categories response status:", categoriesResponse.status);
+        console.log("📋 Categories response headers:", categoriesResponse.headers);
+        
+        if (!categoriesResponse.ok) {
+          const errorText = await categoriesResponse.text();
+          console.log("📋 Categories error response:", errorText);
+          throw new Error(`Categories API failed: ${categoriesResponse.status} - ${errorText}`);
         }
         
-        // Fetch categories for the selected branch
-        const categoriesResponse = await fetch(`http://192.168.1.24:9000/api/v1/hotel/category?branchId=${branchId}`);
-        const categoriesData = await categoriesResponse.json();
+        const categoriesText = await categoriesResponse.text();
+        console.log("📋 Categories raw response:", categoriesText.substring(0, 200) + "...");
         
-        if (Array.isArray(categoriesData) && categoriesData.length > 0) {
-          const formattedCategories = categoriesData.map(category => ({
-            id: category._id,
-            name: category.name,
-            image: category.image ? (category.image.startsWith('http') ? category.image : `http://192.168.1.24:9000${category.image.startsWith('/') ? '' : '/'}${category.image}`) : null
-          }));
+        let categoriesData;
+        try {
+          categoriesData = JSON.parse(categoriesText);
+        } catch (parseError) {
+          console.log("📋 Categories JSON parse error:", parseError);
+          console.log("📋 Full response text:", categoriesText);
+          throw new Error(`Categories response is not valid JSON: ${parseError.message}`);
+        }
+        
+        console.log("✅ Categories fetched:", categoriesData);
+        
+        // Test image URL accessibility
+        if (categoriesData.length > 0 && categoriesData[0].image) {
+          const testImageUrl = `https://hotelvirat.com/${categoriesData[0].image}`;
+          console.log("🧪 Testing image URL accessibility:", testImageUrl);
           
-          setCategories(formattedCategories);
-          
-          // Fetch menu items for each category
-          const menuItemsObj = {};
-          
-          for (const category of formattedCategories) {
-            const menuResponse = await fetch(`http://192.168.1.24:9000/api/v1/hotel/menu?categoryId=${category.id}&branchId=${branchId}`);
-            const menuData = await menuResponse.json();
+          fetch(testImageUrl, { method: 'HEAD' })
+            .then(response => {
+              console.log("🧪 Image URL test result:", response.status, response.ok ? "✅ Accessible" : "❌ Not accessible");
+            })
+            .catch(error => {
+              console.log("🧪 Image URL test failed:", error.message);
+            });
+        }
+        
+        // Fetch products from backend
+        console.log("🍽️ Fetching products from backend...");
+        console.log("🍽️ Products URL:", 'https://hotelvirat.com/api/v1/hotel/menu');
+        const productsResponse = await fetch('https://hotelvirat.com/api/v1/hotel/menu');
+        
+        console.log("🍽️ Products response status:", productsResponse.status);
+        
+        if (!productsResponse.ok) {
+          const errorText = await productsResponse.text();
+          console.log("🍽️ Products error response:", errorText);
+          throw new Error(`Products API failed: ${productsResponse.status} - ${errorText}`);
+        }
+        
+        const productsText = await productsResponse.text();
+        console.log("🍽️ Products raw response:", productsText.substring(0, 200) + "...");
+        
+        let productsData;
+        try {
+          productsData = JSON.parse(productsText);
+        } catch (parseError) {
+          console.log("🍽️ Products JSON parse error:", parseError);
+          console.log("🍽️ Full response text:", productsText);
+          throw new Error(`Products response is not valid JSON: ${parseError.message}`);
+        }
+        
+        console.log("✅ Products fetched:", productsData);
+        
+        // Process categories data
+        const processedCategories = categoriesData.map(category => {
+          let imageUrl = null;
+          if (category.image) {
+            // Try different URL formats for better compatibility
+            if (category.image.startsWith('http')) {
+              // Already a full URL
+              imageUrl = category.image;
+            } else {
+              // Remove leading slash if present to avoid double slashes
+              const cleanImagePath = category.image.startsWith('/') ? category.image.substring(1) : category.image;
+              
+              // Use production server for category images since they're hosted there
+              imageUrl = `https://hotelvirat.com/${cleanImagePath}`;
+            }
             
-            if (Array.isArray(menuData)) {
-              menuItemsObj[category.id] = menuData.map(item => {
-                // Get price - check both price field and prices object
-                let itemPrice = item.price;
-                if (!itemPrice && item.prices && typeof item.prices === 'object') {
-                  const priceValues = Object.values(item.prices);
-                  itemPrice = priceValues.length > 0 ? priceValues[0] : 0;
-                }
-                return {
-                  id: item._id,
-                  name: item.name || item.itemName,
-                  price: itemPrice || 0,
-                  description: item.description || '',
-                  image: item.image ? (item.image.startsWith('http') ? item.image : `http://192.168.1.24:9000${item.image.startsWith('/') ? '' : '/'}${item.image}`) : null,
-                  categoryId: item.categoryId
-                };
+            // Debug category image URL construction (only log first category)
+            if (categoriesData.indexOf(category) === 0) {
+              console.log("🖼️ Category Image URL construction:", {
+                categoryName: category.name,
+                originalImage: category.image,
+                finalImageUrl: imageUrl
               });
             }
           }
           
-          setMenuItems(menuItemsObj);
-        } else {
-          setCategories([]);
-        }
+          return {
+            id: category._id || category.id,
+            name: category.name,
+            image: imageUrl,
+            description: category.description || ''
+          };
+        });
         
-        // Fetch active offers/coupons
-        const offersResponse = await fetch(`http://192.168.1.24:9000/api/v1/hotel/coupon?isActive=true&branchId=${branchId}`);
-        const offersData = await offersResponse.json();
-
-        if (Array.isArray(offersData) && offersData.length > 0) {
-          setOffers(offersData.filter(offer => offer.image).map(offer => ({
-            id: offer._id,
-            image: { uri: offer.image.startsWith('http') ? offer.image : `http://192.168.1.24:9000${offer.image.startsWith('/') ? '' : '/'}${offer.image}` },
-          })));
-        } else {
-          setOffers([]);
-        }
+        console.log("🔍 Sample category structure:", categoriesData[0]);
+        console.log("🔍 Processed categories sample:", processedCategories[0]);
+        
+        // Group products by category and subcategory
+        const groupedMenuItems = {};
+        
+        // Initialize empty arrays for each category
+        processedCategories.forEach(category => {
+          groupedMenuItems[category.id] = [];
+        });
+        
+        console.log("🔍 Sample product structure:", productsData[0]);
+        
+        // Group products by their category
+        productsData.forEach(product => {
+          // Handle different possible category ID structures
+          const categoryId = product.categoryId?._id || 
+                           product.categoryId?.id || 
+                           product.categoryId || 
+                           product.category?._id || 
+                           product.category?.id;
+          
+          // Log only first few product mappings to avoid spam
+          if (productsData.indexOf(product) < 5) {
+            console.log("🔍 Product category mapping:", {
+              productName: product.name,
+              categoryId: categoryId,
+              rawCategoryId: product.categoryId
+            });
+          }
+          
+          if (categoryId && groupedMenuItems[categoryId]) {
+            let imageUrl = null;
+            if (product.image) {
+              // Remove leading slash if present to avoid double slashes
+              const cleanImagePath = product.image.startsWith('/') ? product.image.substring(1) : product.image;
+              // Use production server for images since they're hosted there
+              imageUrl = `https://hotelvirat.com/${cleanImagePath}`;
+              
+              // Debug image URL construction (only log first few items)
+              if (groupedMenuItems[categoryId].length < 3) {
+                console.log("🖼️ Image URL construction:", {
+                  productName: product.name,
+                  originalImage: product.image,
+                  cleanImagePath: cleanImagePath,
+                  finalImageUrl: imageUrl
+                });
+              }
+            }
+            
+            const processedProduct = {
+              id: product._id || product.id,
+              name: product.name || product.itemName,
+              price: product.price || product.prices?.Large || Object.values(product.prices || {})[0] || 0,
+              description: product.description || '',
+              image: imageUrl,
+              categoryId: categoryId,
+              subcategoryId: product.subcategoryId?._id || product.subcategoryId || product.subcategory?._id || product.subcategory?.id,
+              subcategoryName: product.subcategory?.name || product.subcategoryName || '',
+              isVeg: product.isVeg !== false, // Default to true if not specified
+              isAvailable: product.isAvailable !== false, // Default to true if not specified
+              rating: product.rating || 0,
+              preparationTime: product.preparationTime || '15-20 mins',
+              quantities: product.quantities || ['Regular'],
+              prices: product.prices || {}
+            };
+            
+            groupedMenuItems[categoryId].push(processedProduct);
+          } else {
+            console.log("⚠️ Product without valid category:", {
+              productName: product.name,
+              categoryId: categoryId,
+              availableCategories: Object.keys(groupedMenuItems)
+            });
+          }
+        });
+        
+        // Sort products within each category by subcategory and name
+        Object.keys(groupedMenuItems).forEach(categoryId => {
+          groupedMenuItems[categoryId].sort((a, b) => {
+            // First sort by subcategory
+            if (a.subcategoryName && b.subcategoryName) {
+              const subcategoryCompare = a.subcategoryName.localeCompare(b.subcategoryName);
+              if (subcategoryCompare !== 0) return subcategoryCompare;
+            }
+            // Then sort by name
+            return a.name.localeCompare(b.name);
+          });
+        });
+        
+        console.log("📊 Processed categories:", processedCategories);
+        console.log("📊 Grouped menu items:", groupedMenuItems);
+        console.log("📊 Menu items count per category:");
+        Object.keys(groupedMenuItems).forEach(categoryId => {
+          const category = processedCategories.find(cat => cat.id === categoryId);
+          console.log(`  - ${category?.name || categoryId}: ${groupedMenuItems[categoryId].length} items`);
+        });
+        
+        setCategories(processedCategories);
+        setMenuItems(groupedMenuItems);
+        setOffers([]); // No offers for now
+        setLoading(false);
+        
+        console.log("✅ Menu data loaded successfully from admin panel");
+        
       } catch (error) {
-        console.error('Error fetching data:', error);
-        setError('Failed to load data');
+        console.error("❌ Error fetching menu data:", error);
+        setError(`Failed to load menu: ${error.message}`);
+        setLoading(false);
+        
+        // Fallback to default data if admin panel is not available
+        console.log("🔄 Falling back to default menu data...");
+        const defaultCategories = [
+          { id: 'cat1', name: 'South Indian', image: null, description: 'Traditional South Indian dishes' },
+          { id: 'cat2', name: 'North Indian', image: null, description: 'Authentic North Indian cuisine' },
+          { id: 'cat3', name: 'Chinese', image: null, description: 'Indo-Chinese favorites' },
+          { id: 'cat4', name: 'Beverages', image: null, description: 'Refreshing drinks' }
+        ];
+        
+        const defaultMenuItems = {
+          'cat1': [
+            { id: 'item1', name: 'Masala Dosa', price: 80, description: 'Crispy dosa with potato filling', image: null, categoryId: 'cat1', isVeg: true, isAvailable: true },
+            { id: 'item2', name: 'Idli Sambar', price: 60, description: 'Steamed rice cakes with sambar', image: null, categoryId: 'cat1', isVeg: true, isAvailable: true }
+          ],
+          'cat2': [
+            { id: 'item3', name: 'Butter Chicken', price: 220, description: 'Creamy chicken curry', image: null, categoryId: 'cat2', isVeg: false, isAvailable: true },
+            { id: 'item4', name: 'Paneer Butter Masala', price: 180, description: 'Rich paneer curry', image: null, categoryId: 'cat2', isVeg: true, isAvailable: true }
+          ],
+          'cat3': [
+            { id: 'item5', name: 'Fried Rice', price: 120, description: 'Vegetable fried rice', image: null, categoryId: 'cat3', isVeg: true, isAvailable: true },
+            { id: 'item6', name: 'Manchurian', price: 140, description: 'Spicy vegetable balls', image: null, categoryId: 'cat3', isVeg: true, isAvailable: true }
+          ],
+          'cat4': [
+            { id: 'item7', name: 'Fresh Lime Soda', price: 40, description: 'Refreshing lime drink', image: null, categoryId: 'cat4', isVeg: true, isAvailable: true },
+            { id: 'item8', name: 'Filter Coffee', price: 30, description: 'South Indian filter coffee', image: null, categoryId: 'cat4', isVeg: true, isAvailable: true }
+          ]
+        };
+        
+        setCategories(defaultCategories);
+        setMenuItems(defaultMenuItems);
         setOffers([]);
-      } finally {
+        setError(null); // Clear error after fallback
         setLoading(false);
       }
     };
@@ -201,11 +428,15 @@ const Home = () => {
 
   // Navigate to product screen with selected category
   const handleCategoryPress = (categoryId, index) => {
+    const categoryMenuItems = menuItems[categoryId] || [];
+    
     navigation.navigate("Product", {
       initialCategory: index,
       categoryId: categoryId,
       categories: categories,
-      branchId: branches[selectedBranch]?.id
+      branchId: branches[selectedBranch]?.id,
+      menuItems: categoryMenuItems, // Pass the menu items for this category
+      allMenuItems: menuItems // Pass all menu items grouped by category
     });
   };
 
@@ -268,24 +499,91 @@ const Home = () => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Branch Selection */}
-        {branches.length > 0 && (
-          <TouchableOpacity style={[styles.branchSelector, colorScheme === 'dark' ? styles.branchSelectorDark : styles.branchSelectorLight]} onPress={() => setShowBranchModal(true)}>
-            <View style={styles.branchSelectorLeft}>
-              <Icon name="location-on" size={20} color="#800000" />
-              <View style={styles.branchTextContainer}>
-                <Text style={[styles.branchName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>{branches[selectedBranch]?.name || 'Select Branch'}</Text>
-                <Text style={[styles.branchAddress, colorScheme === 'dark' ? styles.textDark : styles.textLight]} numberOfLines={1}>
-                  {branches[selectedBranch]?.address || ''}
-                </Text>
+        {/* Combined Hotel Banner and Branch Selection */}
+        <View style={[styles.combinedBanner, colorScheme === 'dark' ? styles.combinedBannerDark : styles.combinedBannerLight]}>
+          {/* Hotel Virat Logo Section */}
+          <View style={styles.logoSection}>
+            <Image 
+              source={require("../assets/new-virat-logo.jpeg")} 
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+            <View style={styles.logoTextContainer}>
+              <Text style={[styles.logoWelcomeText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                Welcome to
+              </Text>
+              <Text style={[styles.logoHotelName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                Hotel Virat
+              </Text>
+              <Text style={[styles.logoTagline, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                Authentic Taste, Memorable Experience
+              </Text>
+            </View>
+          </View>
+
+          {/* Branch Selection Section */}
+          {branches.length > 0 && (
+            <TouchableOpacity 
+              style={styles.branchSelectorInBanner} 
+              onPress={() => {
+                console.log("🔍 Opening branch modal with branches:", branches);
+                console.log("🔍 Current selectedBranch:", selectedBranch);
+                setShowBranchModal(true);
+              }}
+            >
+              <View style={styles.branchSelectorLeft}>
+                <Icon name="location-on" size={20} color="#800000" />
+                <View style={styles.branchTextContainer}>
+                  <Text style={[styles.branchName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    {branches.length > 0 && selectedBranch !== null ? branches[selectedBranch]?.name : 'Select Branch'}
+                  </Text>
+                  <Text style={[styles.branchAddress, colorScheme === 'dark' ? styles.textDark : styles.textLight]} numberOfLines={1}>
+                    {branches.length > 0 && selectedBranch !== null ? branches[selectedBranch]?.address : ''}
+                  </Text>
+                </View>
+              </View>
+              <Icon name="arrow-drop-down" size={24} color="#800000" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Meal of the Day Section - COMMENTED OUT */}
+        {/* <MealOfTheDayCard branchId={selectedBranch} /> */}
+
+        {/* Table Booking Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Table Booking</Text>
+          <TouchableOpacity 
+            style={[styles.tableBookingCard, colorScheme === 'dark' ? styles.tableBookingCardDark : styles.tableBookingCardLight]}
+            onPress={() => navigation.navigate('TableBooking', {
+              tables: [], // Tables will be fetched in TableBooking component
+              branchId: branches[selectedBranch]?.id, // Pass the actual branch ID
+              availableCount: 0
+            })}
+          >
+            <View style={styles.tableBookingContent}>
+              <View style={styles.tableBookingLeft}>
+                <View style={styles.tableBookingIconContainer}>
+                  <Icon name="table-restaurant" size={32} color="#800000" />
+                </View>
+                <View style={styles.tableBookingTextContainer}>
+                  <Text style={[styles.tableBookingTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    Reserve Your Table
+                  </Text>
+                  <Text style={[styles.tableBookingSubtitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    Book a table for your perfect dining experience
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.tableBookingRight}>
+                <View style={styles.tableBookingBadge}>
+                  <Text style={styles.tableBookingBadgeText}>BOOK NOW</Text>
+                </View>
+                <Icon name="arrow-forward" size={20} color="#800000" />
               </View>
             </View>
-            <Icon name="arrow-drop-down" size={24} color="#800000" />
           </TouchableOpacity>
-        )}
-
-        {/* Meal of the Day Section */}
-        <MealOfTheDayCard branchId={selectedBranch} />
+        </View>
 
         {/* Offers Section - Only show if there are offers */}
         {offers.length > 0 && (
@@ -296,7 +594,7 @@ const Home = () => {
               horizontal
               showsHorizontalScrollIndicator={false}
               renderItem={renderOfferItem}
-              keyExtractor={(item) => item.id.toString()}
+              keyExtractor={(item) => (item.id || item._id || 'unknown').toString()}
               contentContainerStyle={styles.offersContainer}
               snapToInterval={width - 30}
               decelerationRate="fast"
@@ -310,23 +608,42 @@ const Home = () => {
           {categories.length > 0 ? (
             <FlatList
               data={categories}
-              keyExtractor={(item) => item.id.toString()}
+              keyExtractor={(item) => (item.id || item._id || 'unknown').toString()}
               numColumns={2}
               scrollEnabled={false}
-              renderItem={({ item, index }) => (
-                <TouchableOpacity 
-                  style={styles.categoryCard} 
-                  onPress={() => handleCategoryPress(item.id, index)}
-                >
-                  <Image 
-                    source={item.image ? { uri: item.image } : require("../assets/lemon.jpg")} 
-                    style={styles.categoryImage} 
-                  />
-                  <View style={styles.categoryOverlay}>
-                    <Text style={styles.categoryCardText}>{item.name}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
+              renderItem={({ item, index }) => {
+                const itemCount = menuItems[item.id]?.length || 0;
+                return (
+                  <TouchableOpacity 
+                    style={styles.categoryCard} 
+                    onPress={() => handleCategoryPress(item.id, index)}
+                  >
+                    <Image 
+                      source={
+                        failedImages.has(item.id) || !item.image 
+                          ? require("../assets/lemon.jpg")
+                          : { uri: item.image }
+                      } 
+                      style={styles.categoryImage}
+                      onError={(error) => {
+                        console.log("❌ Category image failed:", item.name, item.image);
+                        console.log("❌ Error details:", error.nativeEvent.error);
+                        setFailedImages(prev => new Set([...prev, item.id]));
+                      }}
+                      onLoad={() => {
+                        console.log("✅ Category image loaded:", item.name, item.image);
+                      }}
+                      defaultSource={require("../assets/lemon.jpg")}
+                    />
+                    <View style={styles.categoryOverlay}>
+                      <Text style={styles.categoryCardText}>{item.name}</Text>
+                      {itemCount > 0 && (
+                        <Text style={styles.categoryItemCount}>{itemCount} items</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
               contentContainerStyle={styles.categoriesContainer}
             />
           ) : (
@@ -355,71 +672,56 @@ const Home = () => {
 
             <FlatList
               data={branches}
-              keyExtractor={(item) => item.id.toString()}
-              renderItem={({ item, index }) => (
-                <TouchableOpacity
-                  style={[styles.branchItem, selectedBranch === index && (colorScheme === 'dark' ? styles.selectedBranchItemDark : styles.selectedBranchItem)]}
-                  onPress={() => {
-                    setSelectedBranch(index);
-                    setShowBranchModal(false);
-                  }}
-                >
-                  <View style={styles.branchItemLeft}>
-                    <Icon name="location-on" size={20} color={selectedBranch === index ? "#800000" : colorScheme === 'dark' ? "#888" : "#6b7280"} />
-                  </View>
-                  <View style={styles.branchItemDetails}>
-                    <Text style={[styles.branchItemName, selectedBranch === index ? styles.selectedBranchText : (colorScheme === 'dark' ? styles.textDark : styles.textLight)]}>
-                      {item.name}
-                    </Text>
-                    <Text style={[styles.branchItemAddress, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>{item.address}</Text>
-                  </View>
-                  {selectedBranch === index && <Icon name="check" size={20} color="#800000" />}
-                </TouchableOpacity>
-              )}
+              keyExtractor={(item) => (item.id || item._id || 'unknown').toString()}
+              renderItem={({ item, index }) => {
+                console.log("🔍 Rendering branch item:", { index, item });
+                return (
+                  <TouchableOpacity
+                    style={[styles.branchItem, selectedBranch === index && (colorScheme === 'dark' ? styles.selectedBranchItemDark : styles.selectedBranchItem)]}
+                    onPress={() => {
+                      console.log("🔄 Branch selected:", index, item.name);
+                      setSelectedBranch(index);
+                      setShowBranchModal(false);
+                    }}
+                  >
+                    <View style={styles.branchItemLeft}>
+                      <Icon name="location-on" size={20} color={selectedBranch === index ? "#800000" : colorScheme === 'dark' ? "#888" : "#6b7280"} />
+                    </View>
+                    <View style={styles.branchItemDetails}>
+                      <Text style={[styles.branchItemName, selectedBranch === index ? styles.selectedBranchText : (colorScheme === 'dark' ? styles.textDark : styles.textLight)]}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.branchItemAddress, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>{item.address}</Text>
+                    </View>
+                    {selectedBranch === index && <Icon name="check" size={20} color="#800000" />}
+                  </TouchableOpacity>
+                );
+              }}
               ItemSeparatorComponent={() => <View style={[styles.branchSeparator, colorScheme === 'dark' ? styles.branchSeparatorDark : styles.branchSeparatorLight]} />}
             />
           </View>
         </View>
       </Modal>
 
-      {/* Floating Meal of the Day Button */}
-      <Animated.View 
-        style={[
-          styles.floatingMealButton,
-          {
-            transform: [
-              {
-                scale: buttonAnimation.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            ],
-            opacity: buttonAnimation.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 1],
-            }),
-          },
-        ]}
-      >
-        <TouchableOpacity 
-          style={styles.floatingMealButtonInner}
-          onPress={() => setShowMealPopup(true)}
-        >
-          <View style={styles.floatingMealIcon}>
-            <Icon name="restaurant-menu" size={24} color="#fff" />
-            <Text style={styles.floatingMealText}>Meal of the Day</Text>
-          </View>
-        </TouchableOpacity>
-      </Animated.View>
-
-
-      {/* Meal of the Day Popup Modal */}
+      {/* Meal of the Day Popup Modal - COMMENTED OUT */}
+      {/* 
       <MealOfTheDayPopup 
         visible={showMealPopup}
         onClose={() => setShowMealPopup(false)}
         branchId={branches[selectedBranch]?.id}
       />
+      */}
+
+      {/* Floating Meal of the Day Button - COMMENTED OUT */}
+      {/* 
+      <TouchableOpacity 
+        style={styles.floatingMealButtonInner}
+        onPress={() => setShowMealPopup(true)}
+      >
+        <Icon name="restaurant-menu" size={24} color="#fff" style={{ marginRight: 10 }} />
+        <Text style={styles.floatingMealButtonText}>Meal of the Day</Text>
+      </TouchableOpacity>
+      */}
     </SafeAreaView>
   );
 };
@@ -469,7 +771,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
-   /*  elevation: 5, */
   },
   retryButtonLight: {
     backgroundColor: "#800000",
@@ -496,7 +797,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderBottomWidth: 1,
-   /*  elevation: 4, */
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -523,7 +823,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#800000",
     padding: 10,
     borderRadius: 50,
-   /*  elevation: 5, */
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -561,7 +860,6 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-   /*  elevation: 3, */
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -592,6 +890,64 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  // Combined Banner Styles (Logo + Branch Selection)
+  combinedBanner: {
+    marginHorizontal: 15,
+    marginVertical: 15,
+    padding: 20,
+    borderRadius: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  combinedBannerLight: {
+    backgroundColor: "#fff",
+  },
+  combinedBannerDark: {
+    backgroundColor: "#2a2a2a",
+  },
+  logoSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  logoImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    marginRight: 20,
+  },
+  logoTextContainer: {
+    flex: 1,
+  },
+  logoWelcomeText: {
+    fontSize: 16,
+    fontWeight: "400",
+    marginBottom: 4,
+  },
+  logoHotelName: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#800000",
+    marginBottom: 4,
+  },
+  logoTagline: {
+    fontSize: 14,
+    fontStyle: "italic",
+    opacity: 0.8,
+  },
+  branchSelectorInBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "rgba(128, 0, 0, 0.05)",
+  },
   sectionContainer: {
     marginBottom: 10,
   },
@@ -612,7 +968,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 15,
     overflow: "hidden",
-   /*  elevation: 5, */
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -650,14 +1005,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
-  },
-  headerLight: {
-    backgroundColor: "#fff",
-    borderBottomColor: "#e5e7eb",
-  },
-  headerDark: {
-    backgroundColor: "#2a2a2a",
-    borderBottomColor: "#444",
   },
   modalTitle: {
     fontSize: 18,
@@ -702,65 +1049,6 @@ const styles = StyleSheet.create({
   branchSeparatorDark: {
     backgroundColor: "#444",
   },
-  // floatingMealButton: {   
-  //   allignitem:"right",
-  //   position: 'absolute',
-  //   bottom: 100,
-  //   left: 20,
-  //   backgroundColor: 'red',
-  //   borderRadius: 25,
-  //   paddingHorizontal: 15,
-  //   paddingVertical: 12,
-
-  //   alignItems: 'center',
-  //   elevation: 8,
-  //   shadowColor: '#000',
-  //   shadowOffset: { width: 0, height: 4 },
-  //   shadowOpacity: 0.3,
-  //   shadowRadius: 6,
-  // },
-  // floatingMealIcon: {
-  //   flexDirection: 'row',
-  //   alignItems: 'center',
-  // },
-  // floatingMealText: {
-  //   color: '#fff',
-  //   fontSize: 14,
-  //   fontWeight: '600',
-  //   marginRight: 1,
-  // },
-   
-   
-floatingMealButton: {   
-  position: 'absolute',
-  bottom: 100,
-  left: 20,
-},
-floatingMealButtonInner: {
-  backgroundColor: 'red',
-  borderRadius: 25,
-  paddingHorizontal: 15,
-  paddingVertical: 12,
-  flexDirection: 'row',
-  alignItems: 'center',
-  elevation: 8,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.3,
-  shadowRadius: 6,
-},
-floatingMealIcon: {
-  flexDirection: 'row',
-  alignItems: 'center',
-},
-floatingMealText: {
-  color: '#fff',
-  fontSize: 15,
-  fontWeight: '700',
-  marginLeft: 8,
-},
-
-
   categoriesContainer: {
     paddingHorizontal: 10,
     paddingBottom: 20,
@@ -771,7 +1059,6 @@ floatingMealText: {
     height: 160,
     borderRadius: 12,
     overflow: "hidden",
-   /*  elevation: 5, */
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -798,6 +1085,106 @@ floatingMealText: {
     color: "#FFD700",
     textAlign: "center",
   },
+  categoryItemCount: {
+    fontSize: 12,
+    color: "#FFD700",
+    textAlign: "center",
+    marginTop: 2,
+    opacity: 0.8,
+  },
+  // Table Booking Section Styles
+  tableBookingCard: {
+    marginHorizontal: 15,
+    marginBottom: 10,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  tableBookingCardLight: {
+    backgroundColor: "#fff",
+  },
+  tableBookingCardDark: {
+    backgroundColor: "#2a2a2a",
+  },
+  tableBookingContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  tableBookingLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  tableBookingIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#fff7ed",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 15,
+  },
+  tableBookingTextContainer: {
+    flex: 1,
+  },
+  tableBookingTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  tableBookingSubtitle: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  tableBookingRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  tableBookingBadge: {
+    backgroundColor: "#800000",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  tableBookingBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  // Floating Meal of the Day Button - COMMENTED OUT
+  /*
+  floatingMealButtonInner: {
+    backgroundColor: '#FF6B35',
+    borderRadius: 35,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    position: 'absolute',
+    bottom: 120, // Moved higher up from bottom to be below temple meals section
+    left: 20,
+    minWidth: 180, // Made bigger
+    maxWidth: 200,
+  },
+  floatingMealButtonText: {
+    color: '#fff',
+    fontSize: 16, // Increased font size
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  */
 });
 
 export default Home;

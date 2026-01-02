@@ -35,7 +35,7 @@ const MealOfTheDayPopup = ({ visible, onClose, branchId }) => {
       
   
       
-      const baseUrl = 'http://192.168.1.24:9000';
+      const baseUrl = 'https://hotelvirat.com';
       const today = new Date().toISOString().split('T')[0];
       const url = `${baseUrl}/api/v1/hotel/meal-of-the-day?branchId=${branchId}&date=${today}&isActive=true`;
       
