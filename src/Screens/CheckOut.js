@@ -1895,11 +1895,7 @@ const CheckOut = () => {
     }
 
     // Skip stock validation as requested (out-of-stock functionality removed)
-    console.log('📦 Stock validation skipped - proceeding with order')
-    console.log('📦 Debug - Current cart items:', cartItems)
-    console.log('📦 Debug - Cart items count:', cartItems.length)
-    console.log('📦 Debug - Sample cart item structure:', cartItems[0])
-
+    
     // Check if cart items have valid IDs and exist on production server
     const invalidItems = cartItems.filter(item => !item.id || item.id === 'unknown')
     if (invalidItems.length > 0) {
@@ -1910,14 +1906,6 @@ const CheckOut = () => {
 
     // Additional check: Verify menu items exist on production server
     try {
-      console.log('🔍 Verifying menu items exist on production server...')
-      const menuItemIds = cartItems.map(item => item.id)
-      
-      // Check if these menu items exist on the production server
-      for (const item of cartItems) {
-        console.log(`🔍 Checking item: ${item.name} (ID: ${item.id})`)
-      }
-      
       // If we reach here, proceed with the order
       console.log('✅ All menu items appear valid, proceeding with order')
     } catch (error) {
@@ -1937,12 +1925,21 @@ const CheckOut = () => {
         price: item.price,
         quantity: item.quantity,
         image: item.image ? item.image.replace("https://hotelvirat.com/", "") : null,
+        categoryId: item.categoryId,
+        categoryName: item.categoryName,
       }))
 
-      console.log('📦 Order Debug - Cart Items:', cartItems)
-      console.log('📦 Order Debug - Prepared Order Items:', orderItems)
-      console.log('📦 Order Debug - Branch ID:', branchId)
-      console.log('📦 Order Debug - User ID:', userId)
+      // Determine the primary category for this order (most common category in cart)
+      const categoryCount = {}
+      cartItems.forEach(item => {
+        if (item.categoryName) {
+          categoryCount[item.categoryName] = (categoryCount[item.categoryName] || 0) + item.quantity
+        }
+      })
+      
+      const primaryCategory = Object.keys(categoryCount).reduce((a, b) => 
+        categoryCount[a] > categoryCount[b] ? a : b, 'Restaurant'
+      )
 
       const orderPayload = {
         userId,
@@ -1960,11 +1957,11 @@ const CheckOut = () => {
         phone,
         paymentMethod,
         specialInstructions,
+        categoryName: primaryCategory, // Add primary category to order
+        orderSource: 'mobile-app', // Add source identifier
       }
 
-      console.log('📦 Order Debug - Full Payload:', JSON.stringify(orderPayload, null, 2))
-
-      // Create order using production backend (same as admin panel)
+      // Create order using local backend
       const orderResponse = await fetch("https://hotelvirat.com/api/v1/hotel/order", {
         method: "POST",
         headers: {
@@ -1974,8 +1971,7 @@ const CheckOut = () => {
       })
 
       const orderData = await orderResponse.json()
-      console.log('📦 Order Debug - Response Status:', orderResponse.status)
-      console.log('📦 Order Debug - Response Data:', orderData)
+      console.log('📦 Order created successfully - Order Number:', orderData.orderNumber)
 
       if (!orderResponse.ok) {
         throw new Error(orderData.message || "Failed to create order")

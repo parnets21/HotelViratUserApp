@@ -14,11 +14,12 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../config/api';
 
 const SubscriptionOrderScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { product } = route.params || {};
+  const { product, shouldAutoOrderItem = false, itemIndex } = route.params || {};
   
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
@@ -77,6 +78,30 @@ const SubscriptionOrderScreen = () => {
       return;
     }
 
+    // Check if this is a test item
+    if (product.isTestItem) {
+      console.log('🧪 Test item detected, simulating subscription success');
+      
+      if (shouldAutoOrderItem) {
+        Alert.alert('Test Success!', 'This is a test item. In a real scenario, your subscription would be created and the item would be automatically ordered for delivery! No need to place a separate order.', [
+          { text: 'OK', onPress: () => navigation.goBack() }
+        ]);
+      } else {
+        Alert.alert('Test Success!', 'This is a test item. In a real scenario, your subscription would be created successfully!', [
+          { text: 'OK', onPress: () => navigation.goBack() }
+        ]);
+      }
+      return;
+    }
+
+    // Validate branchId
+    const finalBranchId = product.branchId?._id || product.branchId || '507f1f77bcf86cd799439011';
+    if (!finalBranchId) {
+      Alert.alert('Error', 'Branch information is missing. Please try again.');
+      console.error('❌ No branchId available:', { product });
+      return;
+    }
+
     setLoading(true);
     try {
       // Map new plan types to old backend plan types
@@ -89,15 +114,20 @@ const SubscriptionOrderScreen = () => {
       const requestData = {
         userId,
         productId: product.id || product._id,
-        branchId: product.branchId?._id || product.branchId,
+        branchId: finalBranchId, // Use the validated branchId
         planType: planTypeMapping[subscriptionForm.duration] || subscriptionForm.duration,
         deliveryAddress: 'Default Address', // TODO: Get from user profile
         paymentMethod: subscriptionForm.paymentMethod,
       };
       
       console.log('🚀 Sending subscription order request:', requestData);
+      console.log('🔍 Product branchId details:', {
+        'product.branchId': product.branchId,
+        'product.branchId?._id': product.branchId?._id,
+        'final branchId': finalBranchId
+      });
       
-      const response = await fetch('https://hotelvirat.com/api/v1/hotel/subscription-order', {
+      const response = await fetch(`${API_BASE_URL}/subscription-order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -109,9 +139,16 @@ const SubscriptionOrderScreen = () => {
       console.log('📥 Subscription order response:', data);
       
       if (data.success) {
-        Alert.alert('Success', 'Subscription created successfully!', [
-          { text: 'OK', onPress: () => navigation.goBack() }
-        ]);
+        if (shouldAutoOrderItem) {
+          Alert.alert('Success', 'Subscription created and item ordered successfully! Your item will be delivered and you now have subscription discounts for future orders.', [
+            { text: 'OK', onPress: () => navigation.goBack() }
+          ]);
+          // TODO: Backend should handle creating both subscription and order in one transaction
+        } else {
+          Alert.alert('Success', 'Subscription created successfully!', [
+            { text: 'OK', onPress: () => navigation.goBack() }
+          ]);
+        }
       } else {
         console.error('❌ Subscription order failed:', data);
         Alert.alert('Error', data.message || 'Failed to create subscription');
@@ -125,26 +162,17 @@ const SubscriptionOrderScreen = () => {
   };
 
   const getSelectedPlanPrice = () => {
-    const price = (() => {
-      switch (subscriptionForm.duration) {
-        case '3days': return product.subscription3Days || 0;
-        case '1week': return product.subscription1Week || 0;
-        case '1month': return product.subscription1Month || 0;
-        default: return 0;
-      }
-    })();
-    
-    console.log('🔍 Selected plan price:', {
-      duration: subscriptionForm.duration,
-      price: price,
-      product: {
-        subscription3Days: product.subscription3Days,
-        subscription1Week: product.subscription1Week,
-        subscription1Month: product.subscription1Month
-      }
-    });
-    
-    return price;
+    // Return the subscription fee (what user pays to buy the subscription)
+    switch (subscriptionForm.duration) {
+      case '3days':
+        return product.subscription3DaysPrice || 100; // Default ₹100 for 3 days
+      case '1week':
+        return product.subscription1WeekPrice || 250; // Default ₹250 for 1 week
+      case '1month':
+        return product.subscription1MonthPrice || 500; // Default ₹500 for 1 month
+      default:
+        return product.subscription3DaysPrice || 100;
+    }
   };
 
   if (!product) {
@@ -168,11 +196,23 @@ const SubscriptionOrderScreen = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Icon name="arrow-back" size={24} color="#800000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Subscribe to {product.name}</Text>
+        <Text style={styles.headerTitle}>
+          Subscribe to {product.name}
+        </Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={styles.content}>
+        {/* Notice when item will be auto-ordered */}
+        {shouldAutoOrderItem && (
+          <View style={styles.cartNotice}>
+            <Icon name="local-shipping" size={20} color="#28a745" />
+            <Text style={styles.cartNoticeText}>
+              🚚 This item (₹{product.price}) will be automatically ordered and delivered after you complete the subscription!
+            </Text>
+          </View>
+        )}
+
         {/* Product Info */}
         <View style={styles.productCard}>
           <Image 
@@ -191,91 +231,112 @@ const SubscriptionOrderScreen = () => {
           <Text style={styles.sectionTitle}>Choose Your Plan</Text>
           
           {/* 3 Days Plan */}
-          {product.subscription3Days > 0 && (
-            <TouchableOpacity
-              style={[
-                styles.planCard,
-                subscriptionForm.duration === '3days' && styles.selectedPlan
-              ]}
-              onPress={() => setSubscriptionForm({...subscriptionForm, duration: '3days'})}
-            >
-              <View style={styles.planContent}>
-                <View style={styles.planInfo}>
-                  <Text style={styles.planTitle}>3 Days Plan</Text>
-                  <Text style={styles.planPrice}>₹{product.subscription3Days}</Text>
-                  <Text style={styles.planBenefit}>Special subscriber pricing for 3 days</Text>
-                </View>
-                <View style={[
-                  styles.radioButton,
-                  subscriptionForm.duration === '3days' && styles.selectedRadio
-                ]}>
-                  {subscriptionForm.duration === '3days' && (
-                    <View style={styles.radioInner} />
-                  )}
-                </View>
+          <TouchableOpacity
+            style={[
+              styles.planCard,
+              subscriptionForm.duration === '3days' && styles.selectedPlan
+            ]}
+            onPress={() => setSubscriptionForm({...subscriptionForm, duration: '3days'})}
+          >
+            <View style={styles.planContent}>
+              <View style={styles.planInfo}>
+                <Text style={styles.planTitle}>3 Days Plan</Text>
+                <Text style={styles.planPrice}>
+                  Subscription Fee: ₹{product.subscription3DaysPrice || 100}
+                </Text>
+                <Text style={styles.planBenefit}>
+                  {(() => {
+                    const discountPercent = product.subscription3DaysDiscount || 10;
+                    const discountedPrice = Math.round(product.price * (1 - discountPercent / 100));
+                    const savings = Math.round(product.price * (discountPercent / 100));
+                    return `Get items at ₹${discountedPrice} (Save ₹${savings} - ${discountPercent}% off) for 3 days`;
+                  })()}
+                </Text>
               </View>
-            </TouchableOpacity>
-          )}
+              <View style={[
+                styles.radioButton,
+                subscriptionForm.duration === '3days' && styles.selectedRadio
+              ]}>
+                {subscriptionForm.duration === '3days' && (
+                  <View style={styles.radioInner} />
+                )}
+              </View>
+            </View>
+          </TouchableOpacity>
 
           {/* 1 Week Plan */}
-          {product.subscription1Week > 0 && (
-            <TouchableOpacity
-              style={[
-                styles.planCard,
-                subscriptionForm.duration === '1week' && styles.selectedPlan
-              ]}
-              onPress={() => setSubscriptionForm({...subscriptionForm, duration: '1week'})}
-            >
-              <View style={styles.planContent}>
-                <View style={styles.planInfo}>
-                  <Text style={styles.planTitle}>1 Week Plan</Text>
-                  <Text style={styles.planPrice}>₹{product.subscription1Week}</Text>
-                  <Text style={styles.planBenefit}>Special subscriber pricing for 1 week</Text>
-                  <View style={styles.popularBadge}>
-                    <Text style={styles.popularText}>POPULAR</Text>
-                  </View>
-                </View>
-                <View style={[
-                  styles.radioButton,
-                  subscriptionForm.duration === '1week' && styles.selectedRadio
-                ]}>
-                  {subscriptionForm.duration === '1week' && (
-                    <View style={styles.radioInner} />
-                  )}
+          <TouchableOpacity
+            style={[
+              styles.planCard,
+              subscriptionForm.duration === '1week' && styles.selectedPlan
+            ]}
+            onPress={() => setSubscriptionForm({...subscriptionForm, duration: '1week'})}
+          >
+            <View style={styles.planContent}>
+              <View style={styles.planInfo}>
+                <Text style={styles.planTitle}>1 Week Plan</Text>
+                <Text style={styles.planPrice}>
+                  Subscription Fee: ₹{product.subscription1WeekPrice || 250}
+                </Text>
+                <Text style={styles.planBenefit}>
+                  {(() => {
+                    const discountPercent = product.subscription1WeekDiscount || 15;
+                    const discountedPrice = Math.round(product.price * (1 - discountPercent / 100));
+                    const savings = Math.round(product.price * (discountPercent / 100));
+                    return `Get items at ₹${discountedPrice} (Save ₹${savings} - ${discountPercent}% off) for 1 week`;
+                  })()}
+                </Text>
+                <View style={styles.popularBadge}>
+                  <Text style={styles.popularText}>POPULAR</Text>
                 </View>
               </View>
-            </TouchableOpacity>
-          )}
+              <View style={[
+                styles.radioButton,
+                subscriptionForm.duration === '1week' && styles.selectedRadio
+              ]}>
+                {subscriptionForm.duration === '1week' && (
+                  <View style={styles.radioInner} />
+                )}
+              </View>
+            </View>
+          </TouchableOpacity>
 
           {/* 1 Month Plan */}
-          {product.subscription1Month > 0 && (
-            <TouchableOpacity
-              style={[
-                styles.planCard,
-                subscriptionForm.duration === '1month' && styles.selectedPlan
-              ]}
-              onPress={() => setSubscriptionForm({...subscriptionForm, duration: '1month'})}
-            >
-              <View style={styles.planContent}>
-                <View style={styles.planInfo}>
-                  <Text style={styles.planTitle}>1 Month Plan</Text>
-                  <Text style={styles.planPrice}>₹{product.subscription1Month}</Text>
-                  <Text style={styles.planBenefit}>Special subscriber pricing for 1 month</Text>
-                  <View style={styles.bestValueBadge}>
-                    <Text style={styles.bestValueText}>BEST VALUE</Text>
-                  </View>
-                </View>
-                <View style={[
-                  styles.radioButton,
-                  subscriptionForm.duration === '1month' && styles.selectedRadio
-                ]}>
-                  {subscriptionForm.duration === '1month' && (
-                    <View style={styles.radioInner} />
-                  )}
+          <TouchableOpacity
+            style={[
+              styles.planCard,
+              subscriptionForm.duration === '1month' && styles.selectedPlan
+            ]}
+            onPress={() => setSubscriptionForm({...subscriptionForm, duration: '1month'})}
+          >
+            <View style={styles.planContent}>
+              <View style={styles.planInfo}>
+                <Text style={styles.planTitle}>1 Month Plan</Text>
+                <Text style={styles.planPrice}>
+                  Subscription Fee: ₹{product.subscription1MonthPrice || 500}
+                </Text>
+                <Text style={styles.planBenefit}>
+                  {(() => {
+                    const discountPercent = product.subscription1MonthDiscount || 20;
+                    const discountedPrice = Math.round(product.price * (1 - discountPercent / 100));
+                    const savings = Math.round(product.price * (discountPercent / 100));
+                    return `Get items at ₹${discountedPrice} (Save ₹${savings} - ${discountPercent}% off) for 1 month`;
+                  })()}
+                </Text>
+                <View style={styles.bestValueBadge}>
+                  <Text style={styles.bestValueText}>BEST VALUE</Text>
                 </View>
               </View>
-            </TouchableOpacity>
-          )}
+              <View style={[
+                styles.radioButton,
+                subscriptionForm.duration === '1month' && styles.selectedRadio
+              ]}>
+                {subscriptionForm.duration === '1month' && (
+                  <View style={styles.radioInner} />
+                )}
+              </View>
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* Payment Method */}
@@ -315,6 +376,28 @@ const SubscriptionOrderScreen = () => {
         </View>
       </ScrollView>
 
+      {/* Summary Section */}
+      {shouldAutoOrderItem && (
+        <View style={styles.summarySection}>
+          <Text style={styles.summaryTitle}>Order Summary</Text>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Item Order:</Text>
+            <Text style={styles.summaryValue}>₹{product.price}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Subscription Fee:</Text>
+            <Text style={styles.summaryValue}>₹{getSelectedPlanPrice()}</Text>
+          </View>
+          <View style={[styles.summaryRow, styles.totalRow]}>
+            <Text style={styles.totalLabel}>Total Today:</Text>
+            <Text style={styles.totalValue}>₹{product.price + getSelectedPlanPrice()}</Text>
+          </View>
+          <Text style={styles.summaryNote}>
+            💡 You'll pay ₹{product.price + getSelectedPlanPrice()} today: ₹{product.price} for immediate delivery + ₹{getSelectedPlanPrice()} for future discounts!
+          </Text>
+        </View>
+      )}
+
       {/* Subscribe Button */}
       <View style={styles.footer}>
         <TouchableOpacity
@@ -328,7 +411,10 @@ const SubscriptionOrderScreen = () => {
             <>
               <Icon name="autorenew" size={20} color="#fff" />
               <Text style={styles.subscribeButtonText}>
-                Subscribe for ₹{getSelectedPlanPrice()}
+                {shouldAutoOrderItem 
+                  ? `Order + Subscribe - ₹${product.price + getSelectedPlanPrice()}`
+                  : `Subscribe for ₹${getSelectedPlanPrice()}`
+                }
               </Text>
             </>
           )}
@@ -365,6 +451,74 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 16,
+  },
+  cartNotice: {
+    backgroundColor: '#e8f5e8',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderLeftWidth: 4,
+    borderLeftColor: '#28a745',
+  },
+  cartNoticeText: {
+    fontSize: 14,
+    color: '#28a745',
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
+  },
+  summarySection: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    elevation: 4,
+  },
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  summaryLabel: {
+    fontSize: 16,
+    color: '#666',
+  },
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    marginTop: 8,
+    paddingTop: 12,
+  },
+  totalLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#800000',
+  },
+  totalValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#800000',
+  },
+  summaryNote: {
+    fontSize: 12,
+    color: '#28a745',
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
   },
   productCard: {
     backgroundColor: '#fff',

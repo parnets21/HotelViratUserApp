@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native"
 import { useCart } from "../context/CartContext"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import debounce from "lodash.debounce"
+import { API_BASE_URL, IMAGE_BASE_URL } from "../config/api"
 
 const { width } = Dimensions.get("window")
 const CARD_WIDTH = width - 32
@@ -62,6 +63,9 @@ const Product = ({ route }) => {
   const [selectedItemForSubscription, setSelectedItemForSubscription] = useState(null)
   const [userSubscriptions, setUserSubscriptions] = useState([])
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(false)
+  const [quickLookupNumber, setQuickLookupNumber] = useState("")
+  const [quickLookupLoading, setQuickLookupLoading] = useState(false)
+  const [quickLookupResult, setQuickLookupResult] = useState(null)
 
   // Listen for system theme changes
   useEffect(() => {
@@ -80,10 +84,31 @@ const Product = ({ route }) => {
       categories: categories?.length
     });
 
+    // Clear image cache to ensure fresh images
+    console.log("🧹 Clearing image cache to force fresh image loads");
+
     if (passedMenuItems.length > 0) {
       console.log("✅ Using passed menu items:", passedMenuItems.length);
-      setMenuItems(passedMenuItems);
-      setFilteredItems(passedMenuItems);
+      
+      // Pre-process subscription data to avoid repeated calculations
+      const processedItems = passedMenuItems.map(item => ({
+        ...item,
+        _hasSubscription: hasSubscriptionAvailable(item),
+        _subscriptionLogged: false
+      }));
+      
+      // Log subscription summary
+      const subscriptionCount = processedItems.filter(item => item._hasSubscription).length;
+      console.log(`📊 Subscription Summary: ${subscriptionCount}/${processedItems.length} items have valid subscriptions`);
+      
+      setMenuItems(processedItems);
+      setFilteredItems(processedItems);
+      setLoading(false);
+    } else {
+      // If no passed items, just show empty state
+      console.log("⚠️ No passed items available");
+      setMenuItems([]);
+      setFilteredItems([]);
       setLoading(false);
     }
 
@@ -91,19 +116,228 @@ const Product = ({ route }) => {
       console.log("✅ Using passed all menu items");
       // Convert the grouped menu items to a flat array
       const flatMenuItems = Object.values(passedAllMenuItems).flat();
-      setAllMenuItems(flatMenuItems);
+      
+      // Pre-process subscription data for all items
+      const processedAllItems = flatMenuItems.map(item => ({
+        ...item,
+        _hasSubscription: hasSubscriptionAvailable(item),
+        _subscriptionLogged: false
+      }));
+      
+      // Log subscription summary for all items
+      const allSubscriptionCount = processedAllItems.filter(item => item._hasSubscription).length;
+      console.log(`📊 All Items Subscription Summary: ${allSubscriptionCount}/${processedAllItems.length} items have valid subscriptions`);
+      
+      setAllMenuItems(processedAllItems);
     }
-  }, [passedMenuItems, passedAllMenuItems, categoryId]);
+  }, [passedMenuItems, passedAllMenuItems, categoryId, hasSubscriptionAvailable]);
 
-  // Helper function to check if subscription is available
+  // Helper function to validate image URL
+  const validateImageUrl = async (url) => {
+    if (!url) return false;
+    
+    try {
+      const response = await fetch(url, { 
+        method: 'HEAD',
+        timeout: 5000 // 5 second timeout
+      });
+      return response.ok;
+    } catch (error) {
+      console.log(`❌ Image URL validation failed for ${url}:`, error.message);
+      return false;
+    }
+  };
+
+  // Enhanced image component with fallback logic
+  const EnhancedImage = ({ item, style, onError, onLoad, onLoadStart }) => {
+    const [currentImageIndex, setCurrentImageIndex] = useState(0);
+    const [hasError, setHasError] = useState(false);
+    
+    // Generate multiple possible image URLs
+    const getImageUrls = (originalImage) => {
+      if (!originalImage) return [];
+      
+      if (originalImage.startsWith('http')) {
+        return [originalImage];
+      }
+      
+      let cleanPath = originalImage.toString().trim().replace(/\\/g, "/");
+      
+      // Generate multiple URL patterns to try
+      const urls = [];
+      
+      // Pattern 1: Direct path as stored
+      if (cleanPath.startsWith("uploads/")) {
+        urls.push(`http://192.168.1.25:9000/${cleanPath}`);
+      } else if (cleanPath.startsWith("/uploads/")) {
+        urls.push(`http://192.168.1.25:9000${cleanPath}`);
+      } else {
+        // Pattern 2: Assume it's in uploads/menu/
+        const filename = cleanPath.split("/").pop();
+        urls.push(`http://192.168.1.25:9000/uploads/menu/${filename}`);
+      }
+      
+      // Pattern 3: URL encode spaces and special characters
+      urls.forEach(url => {
+        const encodedUrl = url.replace(/ /g, '%20');
+        if (encodedUrl !== url) {
+          urls.push(encodedUrl);
+        }
+      });
+      
+      // Pattern 4: Production fallback
+      if (cleanPath.startsWith("uploads/")) {
+        urls.push(`https://hotelvirat.com/${cleanPath}`);
+      } else if (cleanPath.startsWith("/uploads/")) {
+        urls.push(`https://hotelvirat.com${cleanPath}`);
+      } else {
+        const filename = cleanPath.split("/").pop();
+        urls.push(`https://hotelvirat.com/uploads/menu/${filename}`);
+      }
+      
+      return [...new Set(urls)]; // Remove duplicates
+    };
+    
+    const imageUrls = getImageUrls(item.image);
+    const currentUrl = imageUrls[currentImageIndex];
+    
+    const handleImageError = (error) => {
+      console.log(`❌ Image failed for "${item.name}" (attempt ${currentImageIndex + 1}/${imageUrls.length}):`, {
+        url: currentUrl,
+        error: error.nativeEvent?.error || 'Unknown error'
+      });
+      
+      // Try next URL if available
+      if (currentImageIndex < imageUrls.length - 1) {
+        setCurrentImageIndex(prev => prev + 1);
+      } else {
+        // All URLs failed, use fallback
+        setHasError(true);
+        if (onError) onError(error);
+      }
+    };
+    
+    const handleImageLoad = () => {
+      console.log(`✅ Image loaded for "${item.name}":`, currentUrl);
+      setHasError(false);
+      if (onLoad) onLoad();
+    };
+    
+    const handleImageLoadStart = () => {
+      console.log(`🔄 Loading image for "${item.name}":`, currentUrl);
+      if (onLoadStart) onLoadStart();
+    };
+    
+    if (hasError || !currentUrl) {
+      return (
+        <Image
+          source={require("../assets/lemon.jpg")}
+          style={style}
+        />
+      );
+    }
+    
+    return (
+      <Image
+        source={{ uri: currentUrl }}
+        style={style}
+        onError={handleImageError}
+        onLoad={handleImageLoad}
+        onLoadStart={handleImageLoadStart}
+      />
+    );
+  };
+
+  // Helper function to get fallback image URLs
+  const getImageWithFallback = (originalImage) => {
+    if (!originalImage) return null;
+    
+    if (originalImage.startsWith('http')) {
+      return originalImage;
+    }
+    
+    // Handle relative paths
+    let cleanPath = originalImage.toString().trim().replace(/\\/g, "/");
+    
+    // Ensure path starts with /
+    if (!cleanPath.startsWith("/")) {
+      if (cleanPath.startsWith("uploads/")) {
+        cleanPath = "/" + cleanPath;
+      } else {
+        // Assume it's just a filename, put it in uploads/menu/
+        const filename = cleanPath.split("/").pop();
+        cleanPath = `/uploads/menu/${filename}`;
+      }
+    }
+    
+    // Try multiple URL patterns
+    const possibleUrls = [
+      `http://192.168.1.25:9000${cleanPath}`, // Local server
+      `https://hotelvirat.com${cleanPath}`, // Production server
+    ];
+    
+    return possibleUrls[0]; // Return first URL for now, we'll validate in the Image component
+  };
+
+  // Network connectivity test
+  const testNetworkConnectivity = async () => {
+    try {
+      console.log('🔍 Testing network connectivity...');
+      
+      // Test API connectivity
+      const apiResponse = await fetch(`${API_BASE_URL}/menu`, { 
+        method: 'HEAD',
+        timeout: 5000 
+      });
+      console.log(`✅ API connectivity: ${apiResponse.status}`);
+      
+      // Test image server connectivity
+      const imageResponse = await fetch('http://192.168.1.25:9000/uploads/menu/', { 
+        method: 'HEAD',
+        timeout: 5000 
+      });
+      console.log(`✅ Image server connectivity: ${imageResponse.status}`);
+      
+      return true;
+    } catch (error) {
+      console.log(`❌ Network connectivity test failed:`, error.message);
+      return false;
+    }
+  };
+
+  // Run connectivity test on component mount
+  useEffect(() => {
+    testNetworkConnectivity();
+  }, []);
+
+  // Helper function to check if subscription is available - optimized with memoization
   const hasSubscriptionAvailable = useCallback((item) => {
-    const hasSubscription = item.subscriptionEnabled && (
-      (item.subscription3Days && item.subscription3Days > 0) ||
-      (item.subscription1Week && item.subscription1Week > 0) ||
-      (item.subscription1Month && item.subscription1Month > 0)
+    // Check multiple possible field names for subscription enabled
+    const isSubscriptionEnabled = !!(
+      item.subscriptionEnabled || 
+      item.hasSubscription || 
+      item.subscription || 
+      item.isSubscriptionEnabled
     );
     
-    return hasSubscription;
+    // If subscription is enabled, we consider it available regardless of specific pricing
+    // The pricing can be calculated dynamically or use default values
+    if (isSubscriptionEnabled) {
+      // Only log for items that actually have subscription enabled (reduce console spam)
+      if (!item._subscriptionLogged) {
+        console.log(`🔍 Subscription available for "${item.name}":`, {
+          isSubscriptionEnabled,
+          regularPrice: item.price,
+          subscription3Days: item.subscription3Days || 0,
+          subscription1Week: item.subscription1Week || 0,
+          subscription1Month: item.subscription1Month || 0,
+        });
+        item._subscriptionLogged = true; // Mark as logged to prevent repeated logs
+      }
+      return true;
+    }
+    
+    return false;
   }, []);
 
   // Helper function to check if user has active subscription for a product
@@ -134,24 +368,28 @@ const Product = ({ route }) => {
       return item.price // No subscription found, return regular price
     }
     
-    // Return the actual subscription price based on user's plan
-    let subscriptionPrice;
+    // Calculate discounted price based on percentage discount
+    let discountPercentage = 0;
     switch (userSubscription.planType) {
       case 'daily':
       case '3days':
-        subscriptionPrice = item.subscription3Days > 0 ? item.subscription3Days : item.price;
-        return subscriptionPrice;
+        discountPercentage = item.subscription3DaysDiscount || 0;
+        break;
       case 'weekly':
       case '1week':
-        subscriptionPrice = item.subscription1Week > 0 ? item.subscription1Week : item.price;
-        return subscriptionPrice;
+        discountPercentage = item.subscription1WeekDiscount || 0;
+        break;
       case 'monthly':
       case '1month':
-        subscriptionPrice = item.subscription1Month > 0 ? item.subscription1Month : item.price;
-        return subscriptionPrice;
+        discountPercentage = item.subscription1MonthDiscount || 0;
+        break;
       default:
         return item.price;
     }
+    
+    // Calculate discounted price: original price - (original price * discount percentage / 100)
+    const discountedPrice = item.price * (1 - discountPercentage / 100);
+    return Math.round(discountedPrice);
   }
 
   // Helper function to get price display with subscription info
@@ -172,27 +410,50 @@ const Product = ({ route }) => {
 
   // Helper function to get subscription discount - simplified to just check if discount exists
   const getSubscriptionDiscount = (item) => {
-    // Just return a simple indicator that subscription is available
-    // No need to calculate or show specific percentages
-    return hasSubscriptionAvailable(item) ? 1 : 0;
+    // Use pre-calculated subscription availability instead of calling function
+    return item._hasSubscription ? 1 : 0;
   };
 
-  // Define fetchMenuItems function - only fetch if no data was passed from Home
+  // Define fetchMenuItems function - ALWAYS fetch fresh data to check for subscription fields
   const fetchMenuItems = useCallback(async () => {
-    // Skip API fetch if we already have menu items from Home screen
-    if (passedMenuItems.length > 0) {
-      console.log("⏭️ Skipping API fetch - using passed menu items");
-      return;
-    }
-
     if (!branchId || !selectedCategoryId) return
 
     setLoading(true)
     try {
-      const response = await fetch(
-        `https://hotelvirat.com/api/v1/hotel/menu?categoryId=${selectedCategoryId}&branchId=${branchId}`,
-      )
+      const apiUrl = `${API_BASE_URL}/menu?categoryId=${selectedCategoryId}&branchId=${branchId}`;
+      console.log("🌐 Fetching fresh menu items from API:", apiUrl);
+      
+      const response = await fetch(apiUrl)
       const data = await response.json()
+      
+      console.log("📥 Fresh API Response received:", {
+        status: response.status,
+        itemCount: Array.isArray(data) ? data.length : 0,
+        firstItemName: Array.isArray(data) && data.length > 0 ? (data[0].name || data[0].itemName) : 'No items'
+      });
+
+      // Debug: Log sample items with their images
+      if (Array.isArray(data) && data.length > 0) {
+        console.log("🖼️ Sample items from production API:");
+        data.slice(0, 3).forEach((item, index) => {
+          console.log(`Item ${index + 1}: "${item.name}" → Image: ${item.image}`);
+        });
+      }
+
+      // Debug: Log the RAW API response to see exactly what we're getting
+      if (Array.isArray(data) && data.length > 0) {
+        console.log("🔍 RAW API RESPONSE - First item:", JSON.stringify(data[0], null, 2));
+        
+        // Look for Babycorn Manchurian specifically to check image data
+        const babycornManchurian = data.find(item => (item.name || item.itemName || '').toLowerCase().includes('babycorn manchurian'));
+        if (babycornManchurian) {
+          console.log("🔍 BABYCORN MANCHURIAN RAW DATA:", JSON.stringify(babycornManchurian, null, 2));
+          console.log("🖼️ BABYCORN MANCHURIAN IMAGE FIELD:", babycornManchurian.image);
+        }
+        
+        // Check what fields exist in the first item
+        console.log("🔍 ALL FIELDS in first item:", Object.keys(data[0]));
+      }
 
       if (Array.isArray(data)) {
         const formattedItems = data.map((item) => {
@@ -204,51 +465,51 @@ const Product = ({ route }) => {
             itemPrice = priceValues.length > 0 ? priceValues[0] : 0;
           }
           
-          // Construct image URL - use production server like admin panel
-          let imageUrl = null;
-          if (item.image) {
-            if (item.image.startsWith('http')) {
-              imageUrl = item.image;
-            } else {
-              // Use production server for images
-              const prodBaseUrl = "https://hotelvirat.com";
-              let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
-              
-              if (cleanPath.startsWith("/")) {
-                imageUrl = `${prodBaseUrl}${cleanPath}`;
-              } else if (cleanPath.startsWith("uploads/")) {
-                imageUrl = `${prodBaseUrl}/${cleanPath}`;
-              } else {
-                // Assume it's just a filename in uploads/menu/
-                const filename = cleanPath.split("/").pop();
-                imageUrl = `${prodBaseUrl}/uploads/menu/${filename}`;
-              }
-            }
-          }
+          // Ensure price is a clean number
+          itemPrice = parseFloat(itemPrice) || 0;
           
-          return {
+          const processedItem = {
             id: item._id,
             name: item.name || item.itemName,
             price: itemPrice || 0,
             description: item.description || "",
-            image: imageUrl,
+            image: item.image,
             categoryId: typeof item.categoryId === 'object' ? item.categoryId._id : item.categoryId,
             branchId: typeof item.branchId === 'object' ? item.branchId._id : item.branchId,
             stock: item.stock || 0,
             lowStockAlert: item.lowStockAlert || 5,
             isActive: item.isActive !== false,
-            subscriptionEnabled: item.subscriptionEnabled || false,
-            subscriptionPlans: item.subscriptionPlans || [],
+            // Handle different subscription enabled field names
+            subscriptionEnabled: item.subscriptionEnabled || item.hasSubscription || item.subscription || item.isSubscriptionEnabled || false,
+            subscriptionPlans: item.subscriptionPlans || item.subscriptionPlan || item.plans || [],
             subscriptionAmount: item.subscriptionAmount || 0,
             subscriptionDiscount: item.subscriptionDiscount || 0,
             subscriptionDuration: item.subscriptionDuration || '3days',
+            // New percentage-based subscription fields
+            subscription3DaysDiscount: item.subscription3DaysDiscount || 0,
+            subscription1WeekDiscount: item.subscription1WeekDiscount || 0,
+            subscription1MonthDiscount: item.subscription1MonthDiscount || 0,
+            subscription3DaysPrice: item.subscription3DaysPrice || 0,
+            subscription1WeekPrice: item.subscription1WeekPrice || 0,
+            subscription1MonthPrice: item.subscription1MonthPrice || 0,
+            // Keep old fields for backward compatibility
             subscription3Days: item.subscription3Days || 0,
             subscription1Week: item.subscription1Week || 0,
             subscription1Month: item.subscription1Month || 0,
             quantities: item.quantities || [],
             prices: item.prices || {}
           };
+          
+          // Pre-calculate subscription availability to avoid repeated calls
+          processedItem._hasSubscription = hasSubscriptionAvailable(processedItem);
+          processedItem._subscriptionLogged = false;
+          
+          return processedItem;
         })
+
+        // Log subscription summary
+        const subscriptionCount = formattedItems.filter(item => item._hasSubscription).length;
+        console.log(`📊 API Fetch Subscription Summary: ${subscriptionCount}/${formattedItems.length} items have valid subscriptions`);
 
         setMenuItems(formattedItems)
         setFilteredItems(formattedItems)
@@ -314,7 +575,7 @@ const Product = ({ route }) => {
     setLoadingSubscriptions(true)
     try {
       const response = await fetch(
-        `https://hotelvirat.com/api/v1/hotel/subscription-order/user/${userId}`,
+        `${API_BASE_URL}/subscription-order/user/${userId}`,
       )
       const data = await response.json()
       
@@ -339,7 +600,7 @@ const Product = ({ route }) => {
 
       try {
         const response = await fetch(
-          `https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${branchId}`,
+          `${API_BASE_URL}/cart?userId=${userId}&branchId=${branchId}`,
         )
         const data = await response.json()
 
@@ -378,7 +639,7 @@ const Product = ({ route }) => {
         let allItems = []
         for (const category of categories) {
           const response = await fetch(
-            `https://hotelvirat.com/api/v1/hotel/menu?categoryId=${category.id}&branchId=${branchId}`,
+            `${API_BASE_URL}/menu?categoryId=${category.id}&branchId=${branchId}`,
           )
           const data = await response.json()
 
@@ -390,23 +651,15 @@ const Product = ({ route }) => {
                 const priceValues = Object.values(item.prices);
                 itemPrice = priceValues.length > 0 ? priceValues[0] : 0;
               }
-              return {
+              
+              // Ensure price is a clean number
+              itemPrice = parseFloat(itemPrice) || 0;
+              const processedItem = {
                 id: item._id,
                 name: item.name || item.itemName,
                 price: itemPrice || 0,
                 description: item.description || "",
-                image: item.image ? (item.image.startsWith('http') ? item.image : (() => {
-                  const prodBaseUrl = "https://hotelvirat.com";
-                  let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
-                  if (cleanPath.startsWith("/")) {
-                    return `${prodBaseUrl}${cleanPath}`;
-                  } else if (cleanPath.startsWith("uploads/")) {
-                    return `${prodBaseUrl}/${cleanPath}`;
-                  } else {
-                    const filename = cleanPath.split("/").pop();
-                    return `${prodBaseUrl}/uploads/menu/${filename}`;
-                  }
-                })()) : null,
+                image: item.image,
                 categoryId: item.categoryId,
                 stock: item.stock || 0,
                 lowStockAlert: item.lowStockAlert || 5,
@@ -416,10 +669,24 @@ const Product = ({ route }) => {
                 subscriptionAmount: item.subscriptionAmount || 0,
                 subscriptionDiscount: item.subscriptionDiscount || 0,
                 subscriptionDuration: item.subscriptionDuration || '3days',
+                // New percentage-based subscription fields
+                subscription3DaysDiscount: item.subscription3DaysDiscount || 0,
+                subscription1WeekDiscount: item.subscription1WeekDiscount || 0,
+                subscription1MonthDiscount: item.subscription1MonthDiscount || 0,
+                subscription3DaysPrice: item.subscription3DaysPrice || 0,
+                subscription1WeekPrice: item.subscription1WeekPrice || 0,
+                subscription1MonthPrice: item.subscription1MonthPrice || 0,
+                // Keep old fields for backward compatibility
                 subscription3Days: item.subscription3Days || 0,
                 subscription1Week: item.subscription1Week || 0,
                 subscription1Month: item.subscription1Month || 0
               };
+              
+              // Pre-calculate subscription availability
+              processedItem._hasSubscription = hasSubscriptionAvailable(processedItem);
+              processedItem._subscriptionLogged = false;
+              
+              return processedItem;
             })
             allItems = [...allItems, ...formattedItems]
           }
@@ -427,6 +694,11 @@ const Product = ({ route }) => {
 
         // Remove duplicates by id (in case of overlapping items)
         const uniqueItems = Array.from(new Map(allItems.map((item) => [item.id, item])).values())
+        
+        // Log subscription summary for all items
+        const allSubscriptionCount = uniqueItems.filter(item => item._hasSubscription).length;
+        console.log(`📊 All Menu Items Subscription Summary: ${allSubscriptionCount}/${uniqueItems.length} items have valid subscriptions`);
+        
         setAllMenuItems(uniqueItems)
         console.log("All menu items fetched:", uniqueItems)
       } catch (error) {
@@ -532,31 +804,61 @@ const Product = ({ route }) => {
   }
 
   const handleAddToCart = async (item, index) => {
+    console.log(`🛒 handleAddToCart called for "${item.name}"`);
+    
     if (!userId) {
-      console.error("User ID not available")
+      console.error("🛒 User ID not available")
       return
     }
     
+    // Debug: Log what's happening in handleAddToCart
+    console.log(`🛒 handleAddToCart called for "${item.name}":`, {
+      hasActiveSubscription: hasActiveSubscription(item.id),
+      hasSubscriptionAvailable: item._hasSubscription,
+      subscriptionEnabled: item.subscriptionEnabled,
+      subscription3DaysDiscount: item.subscription3DaysDiscount,
+      subscription1WeekDiscount: item.subscription1WeekDiscount,
+      subscription1MonthDiscount: item.subscription1MonthDiscount,
+    });
+    
     // Check if user already has an active subscription
     if (hasActiveSubscription(item.id)) {
+      console.log("🛒 User has active subscription, adding directly to cart");
       await addItemToCart(item, index)
       return
     }
     
     // Check if item has subscription enabled and show modal for choice
-    const hasSubscription = hasSubscriptionAvailable(item);
+    const hasSubscription = item._hasSubscription;
+    
+    console.log(`🛒 Subscription check result for "${item.name}": ${hasSubscription}`);
     
     if (hasSubscription) {
+      console.log("🛒 Showing subscription modal");
+      console.log("🛒 Setting selectedItemForSubscription:", { item: item.name, index });
       setSelectedItemForSubscription({ item, index })
       setShowSubscriptionModal(true)
+      console.log("🛒 Modal state should now be true");
       return
     }
 
     // Proceed with normal add to cart
+    console.log("🛒 No subscription, adding directly to cart");
     await addItemToCart(item, index)
   }
 
   const addItemToCart = async (item, index) => {
+    // Check current quantity before adding
+    const currentQuantity = getItemQuantity(item.id);
+    if (currentQuantity >= 10) {
+      Alert.alert(
+        "Maximum Quantity Reached",
+        "You can only add up to 10 items of the same product.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
     if (itemAnimatedValues[index]) {
       Animated.sequence([
         Animated.timing(itemAnimatedValues[index], {
@@ -584,7 +886,9 @@ const Product = ({ route }) => {
         originalPrice: priceInfo.regularPrice,
         isDiscounted: priceInfo.hasSubscription,
         discount: priceInfo.discount,
-        savings: priceInfo.savings
+        savings: priceInfo.savings,
+        categoryId: selectedCategoryId, // Add category information
+        categoryName: categories?.find(cat => cat.id === selectedCategoryId)?.name || 'Unknown'
       }
 
       // Update local cart state using branch index for CartContext
@@ -618,7 +922,7 @@ const Product = ({ route }) => {
         isDiscounted: priceInfo.hasSubscription
       })
       
-      const response = await fetch("https://hotelvirat.com/api/v1/hotel/cart/add", {
+      const response = await fetch(`${API_BASE_URL}/cart/add`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -681,13 +985,13 @@ const Product = ({ route }) => {
       const quantity = getItemQuantity(item.id) - 1
       if (quantity <= 0) {
         await fetch(
-          `https://hotelvirat.com/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`,
+          `${API_BASE_URL}/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`,
           {
             method: "DELETE",
           },
         )
       } else {
-        await fetch("https://hotelvirat.com/api/v1/hotel/cart/update", {
+        await fetch(`${API_BASE_URL}/cart/update`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -732,17 +1036,22 @@ const Product = ({ route }) => {
             </View>
             
             <TouchableOpacity 
-              style={[styles.quantityButton, styles.plusButton]} 
-              onPress={() => handleAddToCart(item, index)}
+              style={[
+                styles.quantityButton, 
+                styles.plusButton,
+                quantity >= 10 && styles.disabledButton
+              ]} 
+              onPress={() => quantity < 10 ? handleAddToCart(item, index) : null}
+              disabled={quantity >= 10}
             >
-              <Icon name="add" size={18} color="#fff" />
+              <Icon name="add" size={18} color={quantity >= 10 ? "#ccc" : "#fff"} />
             </TouchableOpacity>
           </View>
         ) : (
           <TouchableOpacity 
             style={[
               styles.addButton,
-              hasSubscriptionAvailable(item) && !hasActiveSubscription(item.id) && styles.subscriptionAddButton,
+              item._hasSubscription && !hasActiveSubscription(item.id) && styles.subscriptionAddButton,
               hasActiveSubscription(item.id) && styles.subscribedAddButton
             ]} 
             onPress={() => handleAddToCart(item, index)}
@@ -751,7 +1060,7 @@ const Product = ({ route }) => {
             <Text style={styles.addButtonText}>
               {hasActiveSubscription(item.id) 
                 ? "ADD" 
-                : hasSubscriptionAvailable(item) 
+                : item._hasSubscription 
                   ? "ADD / SUB" 
                   : "ADD"
               }
@@ -765,6 +1074,10 @@ const Product = ({ route }) => {
   }
 
   const renderFoodItem = ({ item, index }) => {
+    // Use pre-calculated subscription data instead of calling function repeatedly
+    const hasSubscription = item._hasSubscription;
+    const hasActiveSubscriptionForItem = hasActiveSubscription(item.id);
+    
     return (
       <Animated.View style={[
         styles.foodCard, 
@@ -773,12 +1086,8 @@ const Product = ({ route }) => {
       ]}>
         <View style={styles.foodItemContent}>
           <View style={styles.foodImageContainer}>
-            <Image
-              source={
-                imageErrors[item.id] || !item.image 
-                  ? require("../assets/lemon.jpg") 
-                  : { uri: item.image }
-              }
+            <EnhancedImage
+              item={item}
               style={styles.foodImage}
               onError={(error) => {
                 setImageErrors(prev => ({ ...prev, [item.id]: true }));
@@ -788,7 +1097,7 @@ const Product = ({ route }) => {
               }}
             />
             {/* Subscription Badge - only show for items with subscription available but not subscribed */}
-            {hasSubscriptionAvailable(item) && !hasActiveSubscription(item.id) && (
+            {hasSubscription && !hasActiveSubscriptionForItem && (
               <View style={styles.subscriptionBadge}>
                 <Icon name="autorenew" size={12} color="#FFD700" />
                 <Text style={styles.subscriptionBadgeText}>SUB</Text>
@@ -802,11 +1111,11 @@ const Product = ({ route }) => {
                 {item.name}
               </Text>
               {/* Subscription Icon next to name for available subscriptions */}
-              {hasSubscriptionAvailable(item) && !hasActiveSubscription(item.id) && (
+              {hasSubscription && !hasActiveSubscriptionForItem && (
                 <Icon name="autorenew" size={16} color="#800000" style={styles.subscriptionIcon} />
               )}
               {/* Small green dot for subscribed items */}
-              {hasActiveSubscription(item.id) && (
+              {hasActiveSubscriptionForItem && (
                 <View style={styles.subscribedDot} />
               )}
             </View>
@@ -815,38 +1124,14 @@ const Product = ({ route }) => {
             </Text>
             <View style={styles.priceAndCartContainer}>
               <View style={styles.priceSection}>
-                {(() => {
-                  const priceInfo = getPriceDisplay(item);
-                  
-                  if (priceInfo.hasSubscription) {
-                    // User has subscription - show discounted price without percentage
-                    return (
-                      <>
-                        <Text style={[styles.discountedPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-                          ₹{priceInfo.discountedPrice.toFixed(2)}
-                        </Text>
-                        <Text style={styles.subscriberSavingsText}>
-                          Subscriber Price
-                        </Text>
-                      </>
-                    );
-                  } else {
-                    // No subscription - show regular price
-                    return (
-                      <>
-                        <Text style={[styles.foodPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-                          ₹{priceInfo.regularPrice.toFixed(2)}
-                        </Text>
-                        {/* Subscription discount text below price */}
-                        {hasSubscriptionAvailable(item) && (
-                          <Text style={styles.subscriptionDiscountText}>
-                            Subscribe for Special Price
-                          </Text>
-                        )}
-                      </>
-                    );
-                  }
-                })()}
+                <Text style={[styles.foodPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]} numberOfLines={1} ellipsizeMode="tail">
+                  ₹{parseFloat(item.price || 0).toFixed(2)}
+                </Text>
+                {hasSubscription && (
+                  <Text style={styles.subscriptionDiscountText} numberOfLines={1}>
+                    Subscribe for Special Price
+                  </Text>
+                )}
               </View>
               {renderCartControl(item, index)}
             </View>
@@ -856,6 +1141,42 @@ const Product = ({ route }) => {
     )
   }
 
+  // Quick lookup function to fetch menu item by number
+  const handleQuickLookup = async () => {
+    if (!quickLookupNumber.trim()) {
+      Alert.alert("Error", "Please enter a menu item number")
+      return
+    }
+
+    setQuickLookupLoading(true)
+    setQuickLookupResult(null)
+    
+    try {
+      const response = await fetch(`http://localhost:5175/products?number=${quickLookupNumber.trim()}`)
+      const data = await response.json()
+      
+      if (response.ok && data) {
+        console.log("Quick lookup result:", data)
+        setQuickLookupResult(data)
+      } else {
+        Alert.alert("Not Found", `No menu item found with number ${quickLookupNumber}`)
+        setQuickLookupResult(null)
+      }
+    } catch (error) {
+      console.error("Quick lookup error:", error)
+      Alert.alert("Error", "Failed to fetch menu item. Please try again.")
+      setQuickLookupResult(null)
+    } finally {
+      setQuickLookupLoading(false)
+    }
+  }
+
+  const clearQuickLookup = () => {
+    setQuickLookupNumber("")
+    setQuickLookupResult(null)
+  }
+
+  // Toggle search function
   const toggleSearch = () => {
     setIsSearchActive(!isSearchActive)
     setSearchQuery("")
@@ -918,6 +1239,93 @@ const Product = ({ route }) => {
         <TouchableOpacity style={styles.headerRight} onPress={toggleSearch}>
           <Icon name={isSearchActive ? "close" : "search"} size={24} color="#800000" />
         </TouchableOpacity>
+      </View>
+
+      {/* Quick Lookup Section */}
+      <View style={[styles.quickLookupContainer, colorScheme === 'dark' ? styles.quickLookupContainerDark : styles.quickLookupContainerLight]}>
+        <View style={styles.quickLookupHeader}>
+          <Icon name="search" size={20} color="#800000" />
+          <Text style={[styles.quickLookupTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+            Quick Menu Lookup
+          </Text>
+        </View>
+        
+        <View style={styles.quickLookupInputContainer}>
+          <TextInput
+            style={[styles.quickLookupInput, colorScheme === 'dark' ? styles.quickLookupInputDark : styles.quickLookupInputLight]}
+            placeholder="Enter menu item number..."
+            placeholderTextColor={colorScheme === 'dark' ? '#888' : '#999'}
+            value={quickLookupNumber}
+            onChangeText={setQuickLookupNumber}
+            keyboardType="numeric"
+            returnKeyType="search"
+            onSubmitEditing={handleQuickLookup}
+          />
+          <TouchableOpacity 
+            style={[styles.quickLookupButton, quickLookupLoading && styles.quickLookupButtonDisabled]} 
+            onPress={handleQuickLookup}
+            disabled={quickLookupLoading}
+          >
+            {quickLookupLoading ? (
+              <ActivityIndicator size="small" color="#FFD700" />
+            ) : (
+              <Icon name="search" size={20} color="#FFD700" />
+            )}
+          </TouchableOpacity>
+          {(quickLookupNumber || quickLookupResult) && (
+            <TouchableOpacity style={styles.quickLookupClearButton} onPress={clearQuickLookup}>
+              <Icon name="clear" size={20} color="#800000" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Quick Lookup Result */}
+        {quickLookupResult && (
+          <View style={[styles.quickLookupResult, colorScheme === 'dark' ? styles.quickLookupResultDark : styles.quickLookupResultLight]}>
+            <View style={styles.quickResultContent}>
+              <EnhancedImage
+                item={quickLookupResult}
+                style={styles.quickResultImage}
+              />
+              <View style={styles.quickResultDetails}>
+                <Text style={[styles.quickResultName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                  {quickLookupResult.name}
+                </Text>
+                <Text style={[styles.quickResultPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                  ₹{parseFloat(quickLookupResult.price || 0).toFixed(2)}
+                </Text>
+                {quickLookupResult.description && (
+                  <Text style={[styles.quickResultDescription, colorScheme === 'dark' ? styles.descriptionDark : styles.descriptionLight]} numberOfLines={2}>
+                    {quickLookupResult.description}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity 
+                style={styles.quickResultAddButton}
+                onPress={() => {
+                  // Add the quick lookup result to cart
+                  const formattedItem = {
+                    id: quickLookupResult._id || quickLookupResult.id,
+                    name: quickLookupResult.name,
+                    price: parseFloat(quickLookupResult.price || 0),
+                    description: quickLookupResult.description || "",
+                    image: quickLookupResult.image,
+                    categoryId: quickLookupResult.categoryId,
+                    branchId: quickLookupResult.branchId || branchId,
+                    stock: quickLookupResult.stock || 0,
+                    isActive: quickLookupResult.isActive !== false,
+                    subscriptionEnabled: quickLookupResult.subscriptionEnabled || false,
+                    _hasSubscription: hasSubscriptionAvailable(quickLookupResult)
+                  }
+                  handleAddToCart(formattedItem, 0)
+                }}
+              >
+                <Icon name="add-shopping-cart" size={18} color="#FFD700" />
+                <Text style={styles.quickResultAddButtonText}>ADD</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Meal of the Day Product Section */}
@@ -1055,7 +1463,7 @@ const Product = ({ route }) => {
               <>
                 <View style={styles.modalHeader}>
                   <Text style={[styles.modalTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-                    Choose Your Option
+                    What would you like to do?
                   </Text>
                   <TouchableOpacity 
                     onPress={() => {
@@ -1105,37 +1513,129 @@ const Product = ({ route }) => {
                         <View style={styles.optionText}>
                           <Text style={styles.optionTitle}>Buy Now</Text>
                           <Text style={styles.optionSubtitle}>
-                            Pay ₹{(selectedItemForSubscription?.item?.price || 0).toFixed(2)}
+                            Pay ₹{(selectedItemForSubscription?.item?.price || 0).toFixed(2)} - No subscription
                           </Text>
                         </View>
                       </View>
                     </TouchableOpacity>
 
-                    {/* Subscribe First Option */}
+                    {/* Buy + Subscribe Option */}
                     <TouchableOpacity
-                      style={[styles.optionButton, styles.subscribeFirstButton]}
-                      onPress={() => {
+                      style={[styles.optionButton, styles.buyAndSubscribeButton]}
+                      onPress={async () => {
                         setShowSubscriptionModal(false)
                         if (selectedItemForSubscription?.item) {
-                          navigation.navigate('SubscriptionOrder', { product: selectedItemForSubscription.item })
+                          console.log("🔄 Buy + Subscribe: Going to subscription screen with auto-order flag");
+                          
+                          // Transform the product data to include both old and new subscription fields
+                          const transformedProduct = {
+                            ...selectedItemForSubscription.item,
+                            // Ensure branchId is properly set
+                            branchId: selectedItemForSubscription.item.branchId || branchId || '507f1f77bcf86cd799439011',
+                            // Pass through test item flag
+                            isTestItem: selectedItemForSubscription.item.isTestItem || false,
+                            // Map new percentage fields to old fixed price fields for backward compatibility
+                            subscription3Days: selectedItemForSubscription.item.subscription3DaysPrice || 0,
+                            subscription1Week: selectedItemForSubscription.item.subscription1WeekPrice || 0,
+                            subscription1Month: selectedItemForSubscription.item.subscription1MonthPrice || 0,
+                            // Keep the new fields as well
+                            subscription3DaysDiscount: selectedItemForSubscription.item.subscription3DaysDiscount || 0,
+                            subscription1WeekDiscount: selectedItemForSubscription.item.subscription1WeekDiscount || 0,
+                            subscription1MonthDiscount: selectedItemForSubscription.item.subscription1MonthDiscount || 0,
+                            subscription3DaysPrice: selectedItemForSubscription.item.subscription3DaysPrice || 0,
+                            subscription1WeekPrice: selectedItemForSubscription.item.subscription1WeekPrice || 0,
+                            subscription1MonthPrice: selectedItemForSubscription.item.subscription1MonthPrice || 0,
+                          };
+                          
+                          console.log("🔄 Transformed product for SubscriptionOrder:", {
+                            name: transformedProduct.name,
+                            branchId: transformedProduct.branchId,
+                            isTestItem: transformedProduct.isTestItem,
+                          });
+                          
+                          navigation.navigate('SubscriptionOrder', { 
+                            product: transformedProduct,
+                            shouldAutoOrderItem: true, // Flag to indicate item should be auto-ordered after subscription
+                            itemIndex: selectedItemForSubscription.index
+                          })
                         }
                         setSelectedItemForSubscription(null)
                       }}
                     >
                       <View style={styles.optionContent}>
-                        <Icon name="autorenew" size={24} color="#800000" />
+                        <Icon name="add-shopping-cart" size={24} color="#800000" />
                         <View style={styles.optionText}>
-                          <Text style={styles.subscribeOptionTitle}>Subscribe First</Text>
-                          <Text style={styles.subscribeOptionSubtitle}>
-                            Choose from multiple plans
+                          <Text style={styles.buyAndSubscribeOptionTitle}>Buy + Subscribe</Text>
+                          <Text style={styles.buyAndSubscribeOptionSubtitle}>
+                            Order this item (₹{(selectedItemForSubscription?.item?.price || 0).toFixed(2)}) + Subscribe for future discounts
                           </Text>
-                          <Text style={styles.subscribeOptionBenefit}>
-                            Then get special pricing on future orders!
+                          <Text style={styles.buyAndSubscribeOptionBenefit}>
+                            💡 Get this item delivered + save on future orders!
                           </Text>
                         </View>
                         <View style={styles.savingsBadge}>
                           <Text style={styles.savingsText}>
-                            SPECIAL PRICE
+                            SAVE UP TO {Math.max(
+                              selectedItemForSubscription?.item?.subscription3DaysDiscount || 0,
+                              selectedItemForSubscription?.item?.subscription1WeekDiscount || 0,
+                              selectedItemForSubscription?.item?.subscription1MonthDiscount || 0
+                            )}%
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Subscribe Only Option */}
+                    <TouchableOpacity
+                      style={[styles.optionButton, styles.subscribeOnlyButton]}
+                      onPress={() => {
+                        setShowSubscriptionModal(false)
+                        if (selectedItemForSubscription?.item) {
+                          console.log("🔄 Original item before transformation:", selectedItemForSubscription.item);
+                          
+                          // Transform the product data to include both old and new subscription fields
+                          const transformedProduct = {
+                            ...selectedItemForSubscription.item,
+                            // Ensure branchId is properly set
+                            branchId: selectedItemForSubscription.item.branchId || branchId || '507f1f77bcf86cd799439011',
+                            // Pass through test item flag
+                            isTestItem: selectedItemForSubscription.item.isTestItem || false,
+                            // Map new percentage fields to old fixed price fields for backward compatibility
+                            subscription3Days: selectedItemForSubscription.item.subscription3DaysPrice || 0,
+                            subscription1Week: selectedItemForSubscription.item.subscription1WeekPrice || 0,
+                            subscription1Month: selectedItemForSubscription.item.subscription1MonthPrice || 0,
+                            // Keep the new fields as well
+                            subscription3DaysDiscount: selectedItemForSubscription.item.subscription3DaysDiscount || 0,
+                            subscription1WeekDiscount: selectedItemForSubscription.item.subscription1WeekDiscount || 0,
+                            subscription1MonthDiscount: selectedItemForSubscription.item.subscription1MonthDiscount || 0,
+                            subscription3DaysPrice: selectedItemForSubscription.item.subscription3DaysPrice || 0,
+                            subscription1WeekPrice: selectedItemForSubscription.item.subscription1WeekPrice || 0,
+                            subscription1MonthPrice: selectedItemForSubscription.item.subscription1MonthPrice || 0,
+                          };
+                          
+                          console.log("🔄 Transformed product for SubscriptionOrder:", {
+                            name: transformedProduct.name,
+                            branchId: transformedProduct.branchId,
+                            isTestItem: transformedProduct.isTestItem,
+                            subscription3Days: transformedProduct.subscription3Days,
+                            subscription1Week: transformedProduct.subscription1Week,
+                            subscription1Month: transformedProduct.subscription1Month,
+                            subscription3DaysPrice: transformedProduct.subscription3DaysPrice,
+                            subscription1WeekPrice: transformedProduct.subscription1WeekPrice,
+                            subscription1MonthPrice: transformedProduct.subscription1MonthPrice,
+                          });
+                          
+                          navigation.navigate('SubscriptionOrder', { product: transformedProduct })
+                        }
+                        setSelectedItemForSubscription(null)
+                      }}
+                    >
+                      <View style={styles.optionContent}>
+                        <Icon name="autorenew" size={24} color="#FFD700" />
+                        <View style={styles.optionText}>
+                          <Text style={styles.subscribeOnlyOptionTitle}>Subscribe Only</Text>
+                          <Text style={styles.subscribeOnlyOptionSubtitle}>
+                            Just subscribe for future discounts (no item added to cart)
                           </Text>
                         </View>
                       </View>
@@ -1143,7 +1643,7 @@ const Product = ({ route }) => {
                   </View>
 
                   <Text style={[styles.modalNote, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-                    💡 Subscribe once and enjoy special pricing on all future orders of this item!
+                    💡 You can buy the item now, subscribe for future discounts, or do both!
                   </Text>
                 </View>
               </>
@@ -1266,6 +1766,129 @@ const styles = StyleSheet.create({
     top: 10,
     padding: 4,
   },
+  // Quick Lookup Styles
+  quickLookupContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    elevation: 1,
+  },
+  quickLookupContainerLight: {
+    backgroundColor: "#fff",
+    borderBottomColor: "#f0f0f0",
+  },
+  quickLookupContainerDark: {
+    backgroundColor: "#2a2a2a",
+    borderBottomColor: "#444",
+  },
+  quickLookupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  quickLookupTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+  quickLookupInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  quickLookupInput: {
+    flex: 1,
+    height: 40,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    borderWidth: 1,
+  },
+  quickLookupInputLight: {
+    backgroundColor: "#f3f4f6",
+    borderColor: "#e5e7eb",
+    color: "#1f2937",
+  },
+  quickLookupInputDark: {
+    backgroundColor: "#3a3a3a",
+    borderColor: "#555",
+    color: "#e5e5e5",
+  },
+  quickLookupButton: {
+    backgroundColor: "#800000",
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  quickLookupButtonDisabled: {
+    opacity: 0.6,
+  },
+  quickLookupClearButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f3f4f6",
+  },
+  quickLookupResult: {
+    marginTop: 12,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+  },
+  quickLookupResultLight: {
+    backgroundColor: "#f8f9fa",
+    borderColor: "#e5e7eb",
+  },
+  quickLookupResultDark: {
+    backgroundColor: "#3a3a3a",
+    borderColor: "#555",
+  },
+  quickResultContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  quickResultImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  quickResultDetails: {
+    flex: 1,
+  },
+  quickResultName: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  quickResultPrice: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#800000",
+    marginBottom: 4,
+  },
+  quickResultDescription: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  quickResultAddButton: {
+    backgroundColor: "#800000",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  quickResultAddButtonText: {
+    color: "#FFD700",
+    fontWeight: "600",
+    fontSize: 14,
+  },
   categoryWrapper: {
     paddingVertical: 8,
     borderBottomWidth: 1,
@@ -1333,7 +1956,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
-    minHeight: 120, // Reduced height since UI is now simpler
+    minHeight: 120,
   },
   foodCardLight: {
     backgroundColor: "#fff",
@@ -1346,8 +1969,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   foodImageContainer: {
-    width: 120,
-    height: 120,
+    width: 100, // Reduced from 120 to 100
+    height: 100, // Reduced from 120 to 100
     marginRight: 16,
     position: 'relative',
   },
@@ -1410,7 +2033,7 @@ const styles = StyleSheet.create({
   foodDetails: {
     flex: 1,
     justifyContent: "space-between",
-    minHeight: 100, // Reduced minimum height
+    minHeight: 100,
   },
   foodNameContainer: {
     flexDirection: 'row',
@@ -1445,15 +2068,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end", // Changed to flex-end to align button to bottom
     marginTop: 8, // Added margin to give more space
+    flex: 1, // Ensure it takes available space
   },
   priceSection: {
     flex: 1,
-    marginRight: 8, // Added margin to separate from button
+    marginRight: 12, // Increased from 8 to 12 for more space
+    minWidth: 100, // Ensure minimum width for price section
+  },
+  priceContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
   },
   foodPrice: {
-    fontSize: 20,
+    fontSize: 16, // Reduced from 18 to 16
     fontWeight: "800",
     color: "#800000",
+    textAlign: 'left',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    flexShrink: 0, // Prevent text from shrinking
+    minWidth: 80, // Ensure minimum width for price display
   },
   subscriptionDiscountText: {
     fontSize: 11,
@@ -1477,6 +2111,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
     color: "#28a745", // Green for discounted price
+    flexWrap: 'nowrap',
+    textAlign: 'left',
   },
   subscriberSavingsText: {
     fontSize: 11,
@@ -1487,8 +2123,9 @@ const styles = StyleSheet.create({
   // Cart Control Styles
   cartControlContainer: {
     alignItems: "flex-end",
-    justifyContent: "flex-end", // Ensure button stays at bottom
-    minHeight: 40, // Minimum height for button area
+    justifyContent: "flex-end",
+    minHeight: 40,
+    minWidth: 100, // Ensure minimum width for buttons
   },
   quantityContainer: {
     flexDirection: "row",
@@ -1521,6 +2158,10 @@ const styles = StyleSheet.create({
   plusButton: {
     backgroundColor: "#51cf66",
   },
+  disabledButton: {
+    backgroundColor: "#ccc",
+    opacity: 0.6,
+  },
   quantityDisplay: {
     minWidth: 45,
     paddingHorizontal: 12,
@@ -1540,6 +2181,7 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     shadowColor: "#800000",
     shadowOffset: { width: 0, height: 3 },
@@ -1548,7 +2190,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   addButtonText: {
-    color: "#FFD700", // Keep gold text
+    color: "#FFD700",
     fontWeight: "700",
     fontSize: 14,
   },
@@ -1842,6 +2484,16 @@ const styles = StyleSheet.create({
   normalBuyButton: {
     backgroundColor: '#800000',
   },
+  buyAndSubscribeButton: {
+    backgroundColor: '#28a745', // Green for buy + subscribe
+    borderWidth: 2,
+    borderColor: '#FFD700',
+  },
+  subscribeOnlyButton: {
+    backgroundColor: '#FFD700', // Gold for subscribe only
+    borderWidth: 2,
+    borderColor: '#800000',
+  },
   subscribeFirstButton: {
     backgroundColor: '#FFD700',
     borderWidth: 2,
@@ -1881,6 +2533,32 @@ const styles = StyleSheet.create({
     color: '#28a745',
     fontWeight: '600',
   },
+  buyAndSubscribeOptionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  buyAndSubscribeOptionSubtitle: {
+    fontSize: 14,
+    color: '#FFD700',
+    marginBottom: 2,
+  },
+  buyAndSubscribeOptionBenefit: {
+    fontSize: 12,
+    color: '#FFD700',
+    fontWeight: '600',
+  },
+  subscribeOnlyOptionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#800000',
+    marginBottom: 4,
+  },
+  subscribeOnlyOptionSubtitle: {
+    fontSize: 14,
+    color: '#800000',
+  },
   savingsBadge: {
     backgroundColor: '#28a745',
     paddingHorizontal: 8,
@@ -1897,6 +2575,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
     opacity: 0.8,
+  },
+  subscriptionPlans: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  planOption: {
+    fontSize: 11,
+    color: '#28a745',
+    marginBottom: 4,
+    lineHeight: 16,
   },
 })
 

@@ -19,10 +19,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { launchImageLibrary, launchCamera } from "react-native-image-picker";
+import { API_BASE_URL } from "../config/api";
 
 const { width } = Dimensions.get("window");
 
-const API_BASE = "https://hotelvirat.com/api/v1/hotel";
+const API_BASE = API_BASE_URL;
 
 // Helper function to get proper image URL
 const getImageUrl = (imagePath) => {
@@ -30,7 +32,7 @@ const getImageUrl = (imagePath) => {
   // If it's already a full URL, return as is
   if (imagePath.startsWith("http")) return imagePath;
   
-  // Try production server first for room images since they might be hosted there
+  // Use production server for images (images are stored there)
   const prodBaseUrl = "https://hotelvirat.com";
   
   // Clean up the path - remove leading slash if present
@@ -68,6 +70,8 @@ const RoomBooking = () => {
     guestPhone: '',
     guestEmail: '',
     guestGstNumber: '',
+    panCard: null,
+    aadhaarCard: null,
   });
   
   // Calendar state
@@ -469,8 +473,107 @@ const RoomBooking = () => {
       guestPhone: userData?.phone || '',
       guestEmail: userData?.email || '',
       guestGstNumber: '',
+      panCard: null,
+      aadhaarCard: null,
     });
     setShowBookingModal(true);
+  };
+
+  // Document selection function
+  const selectDocument = (documentType) => {
+    Alert.alert(
+      "Select Document",
+      "Choose how you want to upload your document",
+      [
+        { text: "Camera", onPress: () => openCamera(documentType) },
+        { text: "Gallery", onPress: () => openGallery(documentType) },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
+  };
+
+  const openCamera = (documentType) => {
+    const options = {
+      mediaType: 'photo',
+      quality: 0.8,
+      maxWidth: 1024,
+      maxHeight: 1024,
+    };
+
+    launchCamera(options, (response) => {
+      if (response.didCancel || response.error) return;
+      
+      if (response.assets && response.assets[0]) {
+        const asset = response.assets[0];
+        
+        // Validate file size (max 5MB)
+        if (asset.fileSize > 5 * 1024 * 1024) {
+          Alert.alert("Error", "File size should be less than 5MB");
+          return;
+        }
+
+        setBookingForm({
+          ...bookingForm,
+          [documentType]: {
+            uri: asset.uri,
+            fileName: asset.fileName || `${documentType}_${Date.now()}.jpg`,
+            fileSize: asset.fileSize,
+            type: asset.type,
+          }
+        });
+      }
+    });
+  };
+
+  const openGallery = (documentType) => {
+    const options = {
+      mediaType: 'photo',
+      quality: 0.8,
+      maxWidth: 1024,
+      maxHeight: 1024,
+    };
+
+    launchImageLibrary(options, (response) => {
+      if (response.didCancel || response.error) return;
+      
+      if (response.assets && response.assets[0]) {
+        const asset = response.assets[0];
+        
+        // Validate file size (max 5MB)
+        if (asset.fileSize > 5 * 1024 * 1024) {
+          Alert.alert("Error", "File size should be less than 5MB");
+          return;
+        }
+
+        setBookingForm({
+          ...bookingForm,
+          [documentType]: {
+            uri: asset.uri,
+            fileName: asset.fileName || `${documentType}_${Date.now()}.jpg`,
+            fileSize: asset.fileSize,
+            type: asset.type,
+          }
+        });
+      }
+    });
+  };
+
+  // Convert image to base64
+  const convertImageToBase64 = (uri) => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.onload = function() {
+        const reader = new FileReader();
+        reader.onloadend = function() {
+          resolve(reader.result);
+        };
+        reader.readAsDataURL(xhr.response);
+      };
+      xhr.onerror = reject;
+      xhr.open('GET', uri);
+      xhr.responseType = 'blob';
+      xhr.send();
+    });
   };
 
   // Confirm booking
@@ -536,6 +639,43 @@ const RoomBooking = () => {
     try {
       const priceDetails = calculatePrice();
       
+      // Prepare document data if available
+      let guestGstNumberWithDocs = bookingForm.guestGstNumber.trim() || '';
+      
+      if (bookingForm.panCard || bookingForm.aadhaarCard) {
+        // Convert images to base64 for storage
+        const documentData = {
+          gst: bookingForm.guestGstNumber.trim() || '',
+          documents: {}
+        };
+
+        if (bookingForm.panCard) {
+          // Convert to base64
+          const panCardBase64 = await convertImageToBase64(bookingForm.panCard.uri);
+          documentData.documents.panCard = {
+            name: bookingForm.panCard.fileName,
+            size: bookingForm.panCard.fileSize,
+            type: bookingForm.panCard.type,
+            data: panCardBase64,
+            uploaded: false
+          };
+        }
+
+        if (bookingForm.aadhaarCard) {
+          // Convert to base64
+          const aadhaarCardBase64 = await convertImageToBase64(bookingForm.aadhaarCard.uri);
+          documentData.documents.aadhaarCard = {
+            name: bookingForm.aadhaarCard.fileName,
+            size: bookingForm.aadhaarCard.fileSize,
+            type: bookingForm.aadhaarCard.type,
+            data: aadhaarCardBase64,
+            uploaded: false
+          };
+        }
+
+        guestGstNumberWithDocs = `DOCS:${JSON.stringify(documentData)}`;
+      }
+
       const bookingData = {
         roomId: selectedRoom._id,
         branchId: selectedRoom.branchId?._id || selectedRoom.branchId,
@@ -543,7 +683,7 @@ const RoomBooking = () => {
         userName: bookingForm.guestName.trim(),
         userPhone: bookingForm.guestPhone.trim(),
         userEmail: bookingForm.guestEmail.trim() || '',
-        guestGstNumber: bookingForm.guestGstNumber.trim() || '',
+        guestGstNumber: guestGstNumberWithDocs,
         checkInDate: bookingForm.checkInDate,
         checkOutDate: bookingForm.checkOutDate,
         checkInTime: bookingForm.checkInTime,
@@ -616,26 +756,9 @@ const RoomBooking = () => {
             onLoadStart={() => setImageLoading(true)}
             onLoadEnd={() => setImageLoading(false)}
             onError={(e) => {
-              console.log('❌ Room image failed (production server):', room.images[0]);
-              // Try production server as fallback
-              const fallbackUrl = room.images[0]?.startsWith('http') 
-                ? room.images[0] 
-                : `https://hotelvirat.com/${room.images[0]?.replace(/^\//, '')}`;
-              
-              console.log('🔄 Trying production server:', fallbackUrl);
-              
-              // Only try fallback once by checking current URL
-              const currentUrl = e.target._source?.uri || '';
-              if (currentUrl.includes('hotelvirat.com')) {
-                // Currently trying production, switch to fallback
-                e.target.setNativeProps({
-                  source: { uri: fallbackUrl }
-                });
-              } else {
-                console.log('❌ Both servers failed for room image');
-                setImageLoading(false);
-                setImageError(true);
-              }
+              console.log('❌ Room image failed:', room.images[0]);
+              setImageLoading(false);
+              setImageError(true);
             }}
           />
           {imageLoading && (
@@ -729,23 +852,8 @@ const RoomBooking = () => {
                         onLoadStart={() => handleImageLoadStart(index)}
                         onLoadEnd={() => handleImageLoadEnd(index)}
                         onError={(e) => {
-                          console.log('❌ Modal room image failed (production server):', image);
-                          // Try production server as fallback
-                          const fallbackUrl = image?.startsWith('http') 
-                            ? image 
-                            : `https://hotelvirat.com/${image?.replace(/^\//, '')}`;
-                          
-                          console.log('🔄 Trying production server:', fallbackUrl);
-                          
-                          // Only try fallback once
-                          if (e.target._source.uri.includes('hotelvirat.com')) {
-                            e.target.setNativeProps({
-                              source: { uri: fallbackUrl }
-                            });
-                          } else {
-                            console.log('❌ Both servers failed for modal room image');
-                            handleImageError(index);
-                          }
+                          console.log('❌ Modal room image failed:', image);
+                          handleImageError(index);
                         }}
                       />
                       {modalImageLoading[index] && (
@@ -983,6 +1091,68 @@ const RoomBooking = () => {
                         autoCapitalize="characters"
                         maxLength={15}
                       />
+                    </View>
+
+                    {/* Document Upload Section */}
+                    <View style={styles.documentSection}>
+                      <Text style={styles.documentSectionTitle}>Identity Documents (Optional)</Text>
+                      <Text style={styles.documentSectionSubtitle}>Upload PAN Card and/or Aadhaar Card for verification</Text>
+                      
+                      {/* PAN Card Upload */}
+                      <View style={styles.documentUpload}>
+                        <Text style={styles.documentLabel}>PAN Card</Text>
+                        {bookingForm.panCard ? (
+                          <View style={styles.documentPreview}>
+                            <Image source={{ uri: bookingForm.panCard.uri }} style={styles.documentImage} />
+                            <View style={styles.documentInfo}>
+                              <Text style={styles.documentName}>{bookingForm.panCard.fileName}</Text>
+                              <Text style={styles.documentSize}>{(bookingForm.panCard.fileSize / 1024 / 1024).toFixed(2)} MB</Text>
+                            </View>
+                            <TouchableOpacity 
+                              style={styles.removeDocumentBtn}
+                              onPress={() => setBookingForm({...bookingForm, panCard: null})}
+                            >
+                              <Icon name="close" size={20} color="#dc2626" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity 
+                            style={styles.documentUploadBtn}
+                            onPress={() => selectDocument('panCard')}
+                          >
+                            <Icon name="add-a-photo" size={24} color="#800000" />
+                            <Text style={styles.documentUploadText}>Upload PAN Card</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      {/* Aadhaar Card Upload */}
+                      <View style={styles.documentUpload}>
+                        <Text style={styles.documentLabel}>Aadhaar Card</Text>
+                        {bookingForm.aadhaarCard ? (
+                          <View style={styles.documentPreview}>
+                            <Image source={{ uri: bookingForm.aadhaarCard.uri }} style={styles.documentImage} />
+                            <View style={styles.documentInfo}>
+                              <Text style={styles.documentName}>{bookingForm.aadhaarCard.fileName}</Text>
+                              <Text style={styles.documentSize}>{(bookingForm.aadhaarCard.fileSize / 1024 / 1024).toFixed(2)} MB</Text>
+                            </View>
+                            <TouchableOpacity 
+                              style={styles.removeDocumentBtn}
+                              onPress={() => setBookingForm({...bookingForm, aadhaarCard: null})}
+                            >
+                              <Icon name="close" size={20} color="#dc2626" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity 
+                            style={styles.documentUploadBtn}
+                            onPress={() => selectDocument('aadhaarCard')}
+                          >
+                            <Icon name="add-a-photo" size={24} color="#800000" />
+                            <Text style={styles.documentUploadText}>Upload Aadhaar Card</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
                   </View>
 
@@ -2033,6 +2203,80 @@ const getStyles = (isDark) =>
     // Input Group Styles
     inputGroup: {
       marginBottom: 16,
+    },
+    // Document Upload Styles
+    documentSection: {
+      marginTop: 8,
+    },
+    documentSectionTitle: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: isDark ? "#fff" : "#000",
+      marginBottom: 4,
+    },
+    documentSectionSubtitle: {
+      fontSize: 12,
+      color: isDark ? "#aaa" : "#666",
+      marginBottom: 16,
+    },
+    documentUpload: {
+      marginBottom: 16,
+    },
+    documentLabel: {
+      fontSize: 14,
+      fontWeight: "500",
+      color: isDark ? "#fff" : "#000",
+      marginBottom: 8,
+    },
+    documentUploadBtn: {
+      backgroundColor: isDark ? "#333" : "#f8f9fa",
+      borderRadius: 8,
+      padding: 16,
+      borderWidth: 2,
+      borderColor: "#800000",
+      borderStyle: "dashed",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    documentUploadText: {
+      fontSize: 14,
+      color: "#800000",
+      marginTop: 8,
+      fontWeight: "500",
+    },
+    documentPreview: {
+      backgroundColor: isDark ? "#333" : "#f8f9fa",
+      borderRadius: 8,
+      padding: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: isDark ? "#444" : "#e5e7eb",
+    },
+    documentImage: {
+      width: 60,
+      height: 60,
+      borderRadius: 6,
+      backgroundColor: isDark ? "#444" : "#e5e7eb",
+    },
+    documentInfo: {
+      flex: 1,
+      marginLeft: 12,
+    },
+    documentName: {
+      fontSize: 14,
+      fontWeight: "500",
+      color: isDark ? "#fff" : "#000",
+      marginBottom: 4,
+    },
+    documentSize: {
+      fontSize: 12,
+      color: isDark ? "#aaa" : "#666",
+    },
+    removeDocumentBtn: {
+      padding: 8,
+      borderRadius: 6,
+      backgroundColor: isDark ? "#444" : "#fee2e2",
     },
     // Text Color Styles
     textDark: {

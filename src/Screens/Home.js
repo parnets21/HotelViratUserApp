@@ -20,6 +20,7 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
 import { useCart } from "../context/CartContext";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL, IMAGE_BASE_URL } from "../config/api";
 // import MealOfTheDayCard from '../components/MealOfTheDayCard';
 // import MealOfTheDayPopup from '../components/MealOfTheDayPopup';
 import BookTableCard from '../components/BookTableCard';
@@ -106,7 +107,7 @@ const Home = () => {
       console.log("🌐 Fetching branches from backend...");
       
       try {
-        const response = await fetch('https://hotelvirat.com/api/v1/hotel/branch');
+        const response = await fetch(`${API_BASE_URL}/branch`);
         
         if (response.ok) {
           const branchesData = await response.json();
@@ -176,8 +177,8 @@ const Home = () => {
       try {
         // Fetch categories from admin panel backend
         console.log("📋 Fetching categories from backend...");
-        console.log("📋 Categories URL:", 'https://hotelvirat.com/api/v1/hotel/category');
-        const categoriesResponse = await fetch('https://hotelvirat.com/api/v1/hotel/category');
+        console.log("📋 Categories URL:", `${API_BASE_URL}/category`);
+        const categoriesResponse = await fetch(`${API_BASE_URL}/category`);
         
         console.log("📋 Categories response status:", categoriesResponse.status);
         console.log("📋 Categories response headers:", categoriesResponse.headers);
@@ -204,7 +205,7 @@ const Home = () => {
         
         // Test image URL accessibility
         if (categoriesData.length > 0 && categoriesData[0].image) {
-          const testImageUrl = `https://hotelvirat.com/${categoriesData[0].image}`;
+          const testImageUrl = `${IMAGE_BASE_URL}/${categoriesData[0].image}`;
           console.log("🧪 Testing image URL accessibility:", testImageUrl);
           
           fetch(testImageUrl, { method: 'HEAD' })
@@ -218,8 +219,8 @@ const Home = () => {
         
         // Fetch products from backend
         console.log("🍽️ Fetching products from backend...");
-        console.log("🍽️ Products URL:", 'https://hotelvirat.com/api/v1/hotel/menu');
-        const productsResponse = await fetch('https://hotelvirat.com/api/v1/hotel/menu');
+        console.log("🍽️ Products URL:", `${API_BASE_URL}/menu`);
+        const productsResponse = await fetch(`${API_BASE_URL}/menu`);
         
         console.log("🍽️ Products response status:", productsResponse.status);
         
@@ -255,8 +256,8 @@ const Home = () => {
               // Remove leading slash if present to avoid double slashes
               const cleanImagePath = category.image.startsWith('/') ? category.image.substring(1) : category.image;
               
-              // Use production server for category images since they're hosted there
-              imageUrl = `https://hotelvirat.com/${cleanImagePath}`;
+              // Use production server for category images (images are stored there)
+              imageUrl = `${IMAGE_BASE_URL}/${cleanImagePath}`;
             }
             
             // Debug category image URL construction (only log first category)
@@ -313,8 +314,8 @@ const Home = () => {
             if (product.image) {
               // Remove leading slash if present to avoid double slashes
               const cleanImagePath = product.image.startsWith('/') ? product.image.substring(1) : product.image;
-              // Use production server for images since they're hosted there
-              imageUrl = `https://hotelvirat.com/${cleanImagePath}`;
+              // Use production server for images (images are stored there)
+              imageUrl = `${IMAGE_BASE_URL}/${cleanImagePath}`;
               
               // Debug image URL construction (only log first few items)
               if (groupedMenuItems[categoryId].length < 3) {

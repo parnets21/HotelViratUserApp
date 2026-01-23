@@ -1,13 +1,13 @@
 // API Configuration
-// Change this URL based on your environment:
-// - For iOS Simulator: 'http://localhost:9000'
-// - For Android Emulator: 'http://10.0.2.2:9000' 
-// - For Physical Device: 'http://192.168.1.25:9000' (your computer's IP)
-// - For Production: 'https://hotelvirat.com'
+// Use local IP address for API calls but production for images
+export const API_BASE_URL = 'http://192.168.1.25:9000/api/v1/hotel';
 
-export const API_BASE_URL = 'https://hotelvirat.com/api/v1/hotel';
+// Image base URL - use production server since most images are stored there
+export const IMAGE_BASE_URL = 'https://hotelvirat.com';
 
-// Alternative URLs for different environments:
-// export const API_BASE_URL = 'http://localhost:9000/api/v1/hotel';
-// export const API_BASE_URL = 'http://192.168.1.25:9000/api/v1/hotel';
+// Note: Local server only has limited images, production has all images
+
+// Production URLs (commented out for local development):
+// export const API_BASE_URL = 'https://hotelvirat.com/api/v1/hotel';
+// export const IMAGE_BASE_URL = 'https://hotelvirat.com';
 
