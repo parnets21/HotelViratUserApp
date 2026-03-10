@@ -15,6 +15,19 @@ import { useNavigation } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
+// Helper function to trim numbers from item names
+const trimNumbersFromName = (name) => {
+  if (!name) return name;
+  
+  // Remove numbers from the beginning (e.g., "123 Masala Dosa" -> "Masala Dosa")
+  // Remove numbers from the end (e.g., "Masala Dosa 123" -> "Masala Dosa")
+  // Also handles formats like "123. Masala Dosa" or "Masala Dosa - 123"
+  return name
+    .replace(/^\d+[\s\.\-:]*/, '') // Remove leading numbers with optional separators
+    .replace(/[\s\.\-:]*\d+$/, '') // Remove trailing numbers with optional separators
+    .trim();
+};
+
 const MealOfTheDayPopup = ({ visible, onClose, branchId }) => {
   const [mealOfTheDay, setMealOfTheDay] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -170,7 +183,7 @@ const MealOfTheDayPopup = ({ visible, onClose, branchId }) => {
 
                     {/* Details */}
                     <View style={styles.mealDetails}>
-                      <Text style={styles.mealTitle}>{mealOfTheDay.productId?.name}</Text>
+                      <Text style={styles.mealTitle}>{trimNumbersFromName(mealOfTheDay.productId?.name)}</Text>
                       <Text style={styles.mealDescription}>{mealOfTheDay.description}</Text>
                       
                       {/* Price */}

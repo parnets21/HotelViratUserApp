@@ -16,6 +16,19 @@ import { useNavigation } from "@react-navigation/native";
 import { useCart } from "../context/CartContext";
 import { API_BASE_URL, IMAGE_BASE_URL } from "../config/api";
 
+// Helper function to trim numbers from item names
+const trimNumbersFromName = (name) => {
+  if (!name) return name;
+  
+  // Remove numbers from the beginning (e.g., "123 Masala Dosa" -> "Masala Dosa")
+  // Remove numbers from the end (e.g., "Masala Dosa 123" -> "Masala Dosa")
+  // Also handles formats like "123. Masala Dosa" or "Masala Dosa - 123"
+  return name
+    .replace(/^\d+[\s\.\-:]*/, '') // Remove leading numbers with optional separators
+    .replace(/[\s\.\-:]*\d+$/, '') // Remove trailing numbers with optional separators
+    .trim();
+};
+
 const Categories = ({ route }) => {
   const navigation = useNavigation();
   const { branchId, branchName, branchIndex } = route.params;
@@ -117,7 +130,7 @@ const Categories = ({ route }) => {
             
             groupedMenuItems[categoryId].push({
               id: product._id || product.id,
-              name: product.name || product.itemName,
+              name: trimNumbersFromName(product.name || product.itemName),
               price: product.price || product.prices?.Large || Object.values(product.prices || {})[0] || 0,
               description: product.description || '',
               image: imageUrl,
@@ -248,9 +261,7 @@ const Categories = ({ route }) => {
               )}
               <View style={styles.categoryOverlay}>
                 <Text style={styles.categoryCardText}>{item.name}</Text>
-                <Text style={styles.categoryItemCount}>
-                  {menuItems[item.id]?.length || 0} items
-                </Text>
+                
               </View>
             </TouchableOpacity>
           )}

@@ -16,6 +16,19 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config/api';
 
+// Helper function to trim numbers from item names
+const trimNumbersFromName = (name) => {
+  if (!name) return name;
+  
+  // Remove numbers from the beginning (e.g., "123 Masala Dosa" -> "Masala Dosa")
+  // Remove numbers from the end (e.g., "Masala Dosa 123" -> "Masala Dosa")
+  // Also handles formats like "123. Masala Dosa" or "Masala Dosa - 123"
+  return name
+    .replace(/^\d+[\s\.\-:]*/, '') // Remove leading numbers with optional separators
+    .replace(/[\s\.\-:]*\d+$/, '') // Remove trailing numbers with optional separators
+    .trim();
+};
+
 const SubscriptionOrderScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -197,7 +210,7 @@ const SubscriptionOrderScreen = () => {
           <Icon name="arrow-back" size={24} color="#800000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
-          Subscribe to {product.name}
+          Subscribe to {trimNumbersFromName(product.name)}
         </Text>
         <View style={{ width: 24 }} />
       </View>
@@ -220,7 +233,7 @@ const SubscriptionOrderScreen = () => {
             style={styles.productImage} 
           />
           <View style={styles.productInfo}>
-            <Text style={styles.productName}>{product.name}</Text>
+            <Text style={styles.productName}>{trimNumbersFromName(product.name)}</Text>
             <Text style={styles.productPrice}>Regular Price: ₹{product.price}</Text>
             <Text style={styles.productDescription}>{product.description}</Text>
           </View>

@@ -31,6 +31,19 @@ const clearImageCache = () => {
   // This will help ensure fresh images are loaded
 };
 
+// Helper function to trim numbers from item names
+const trimNumbersFromName = (name) => {
+  if (!name) return name;
+  
+  // Remove numbers from the beginning (e.g., "123 Masala Dosa" -> "Masala Dosa")
+  // Remove numbers from the end (e.g., "Masala Dosa 123" -> "Masala Dosa")
+  // Also handles formats like "123. Masala Dosa" or "Masala Dosa - 123"
+  return name
+    .replace(/^\d+[\s\.\-:]*/, '') // Remove leading numbers with optional separators
+    .replace(/[\s\.\-:]*\d+$/, '') // Remove trailing numbers with optional separators
+    .trim();
+};
+
 const Home = () => {
   const navigation = useNavigation();
   const [showBranchModal, setShowBranchModal] = useState(false);
@@ -205,10 +218,10 @@ const Home = () => {
             });
         }
         
-        // Fetch products from backend
+        // Fetch products from backend - use high limit to get ALL items (backend has pagination with limit=100 default)
         console.log("🍽️ Fetching products from backend...");
-        console.log("🍽️ Products URL:", `${API_BASE_URL}/menu`);
-        const productsResponse = await fetch(`${API_BASE_URL}/menu`);
+        console.log("🍽️ Products URL:", `${API_BASE_URL}/menu?limit=10000`);
+        const productsResponse = await fetch(`${API_BASE_URL}/menu?limit=10000`);
         
         console.log("🍽️ Products response status:", productsResponse.status);
         
@@ -249,27 +262,14 @@ const Home = () => {
         
         console.log(`✅ Total products fetched: ${productsData.length}`);
         
-        // Filter only restaurant category items
-        const restaurantProducts = productsData.filter(product => {
-          const categoryName = product.categoryId?.name || product.category?.name || '';
-          const isRestaurant = categoryName.toLowerCase().includes('restaurant');
-          if (isRestaurant) {
-            console.log(`✅ Restaurant product found: ${product.name || product.itemName} (Category: ${categoryName})`);
-          }
-          return isRestaurant;
-        });
+        // Don't filter products by category name - show all products
+        // The filtering will be done based on the selected category in the UI
+        const restaurantProducts = productsData;
         
-        console.log(`✅ Filtered ${restaurantProducts.length} restaurant products from ${productsData.length} total products`);
+        console.log(`✅ Total products available: ${restaurantProducts.length}`);
         
-        // Process categories data - filter only restaurant category
+        // Process categories data - show all categories, don't filter by name
         const processedCategories = categoriesData
-          .filter(category => {
-            const isRestaurant = category.name.toLowerCase().includes('restaurant');
-            if (isRestaurant) {
-              console.log(`✅ Restaurant category found: ${category.name}`);
-            }
-            return isRestaurant;
-          })
           .map(category => {
           let imageUrl = null;
           if (category.image) {
@@ -328,10 +328,16 @@ const Home = () => {
           // Log only first few product mappings to avoid spam
           if (productsData.indexOf(product) < 5) {
             console.log("🔍 Product category mapping:", {
-              productName: product.name,
+              productName: product.name || product.itemName,
               categoryId: categoryId,
               rawCategoryId: product.categoryId
             });
+          }
+          
+          // Create category entry if it doesn't exist (for products whose categories aren't in the categories list)
+          if (categoryId && !groupedMenuItems[categoryId]) {
+            console.log("⚠️ Creating missing category entry for:", categoryId);
+            groupedMenuItems[categoryId] = [];
           }
           
           if (categoryId && groupedMenuItems[categoryId]) {
@@ -355,7 +361,7 @@ const Home = () => {
             
             const processedProduct = {
               id: product._id || product.id,
-              name: product.name || product.itemName,
+              name: trimNumbersFromName(product.name || product.itemName),
               price: product.price || product.prices?.Large || Object.values(product.prices || {})[0] || 0,
               description: product.description || '',
               image: imageUrl,

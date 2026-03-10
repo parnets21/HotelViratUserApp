@@ -16,6 +16,19 @@ import { useNavigation } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
+// Helper function to trim numbers from item names
+const trimNumbersFromName = (name) => {
+  if (!name) return name;
+  
+  // Remove numbers from the beginning (e.g., "123 Masala Dosa" -> "Masala Dosa")
+  // Remove numbers from the end (e.g., "Masala Dosa 123" -> "Masala Dosa")
+  // Also handles formats like "123. Masala Dosa" or "Masala Dosa - 123"
+  return name
+    .replace(/^\d+[\s\.\-:]*/, '') // Remove leading numbers with optional separators
+    .replace(/[\s\.\-:]*\d+$/, '') // Remove trailing numbers with optional separators
+    .trim();
+};
+
 const MealOfTheDayCard = ({ branchId }) => {
   const [mealOfTheDay, setMealOfTheDay] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -65,7 +78,7 @@ const MealOfTheDayCard = ({ branchId }) => {
 
     const cartItem = {
       id: mealOfTheDay.productId._id,
-      name: mealOfTheDay.title,
+      name: trimNumbersFromName(mealOfTheDay.title),
       price: mealOfTheDay.specialPrice,
       image: mealOfTheDay.image || mealOfTheDay.productId.image,
       branchId: mealOfTheDay.branchId._id,
@@ -79,7 +92,7 @@ const MealOfTheDayCard = ({ branchId }) => {
     addToCart(cartItem);
     Alert.alert(
       'Added to Cart!',
-      `${mealOfTheDay.title} has been added to your cart`,
+      `${trimNumbersFromName(mealOfTheDay.title)} has been added to your cart`,
       [{ text: 'OK' }]
     );
   };
@@ -92,7 +105,7 @@ const MealOfTheDayCard = ({ branchId }) => {
       product: {
         _id: mealOfTheDay.productId._id,
         id: mealOfTheDay.productId._id,
-        name: mealOfTheDay.title,
+        name: trimNumbersFromName(mealOfTheDay.title),
         price: mealOfTheDay.specialPrice,
         originalPrice: mealOfTheDay.originalPrice,
         image: mealOfTheDay.image || mealOfTheDay.productId.image,
@@ -186,7 +199,7 @@ const MealOfTheDayCard = ({ branchId }) => {
           </View>
 
           <View style={styles.content}>
-            <Text style={styles.mealTitle}>{mealOfTheDay.title}</Text>
+            <Text style={styles.mealTitle}>{trimNumbersFromName(mealOfTheDay.title)}</Text>
             <Text style={styles.description} numberOfLines={2}>{mealOfTheDay.description}</Text>
 
             <View style={styles.priceContainer}>

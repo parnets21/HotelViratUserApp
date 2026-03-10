@@ -63,9 +63,20 @@ const Product = ({ route }) => {
   const [selectedItemForSubscription, setSelectedItemForSubscription] = useState(null)
   const [userSubscriptions, setUserSubscriptions] = useState([])
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(false)
-  const [quickLookupNumber, setQuickLookupNumber] = useState("")
-  const [quickLookupLoading, setQuickLookupLoading] = useState(false)
-  const [quickLookupResult, setQuickLookupResult] = useState(null)
+
+
+  // Helper function to trim numbers from item names
+  const trimNumbersFromName = (name) => {
+    if (!name) return name;
+    
+    // Remove numbers from the beginning (e.g., "123 Masala Dosa" -> "Masala Dosa")
+    // Remove numbers from the end (e.g., "Masala Dosa 123" -> "Masala Dosa")
+    // Also handles formats like "123. Masala Dosa" or "Masala Dosa - 123"
+    return name
+      .replace(/^\d+[\s\.\-:]*/, '') // Remove leading numbers with optional separators
+      .replace(/[\s\.\-:]*\d+$/, '') // Remove trailing numbers with optional separators
+      .trim();
+  };
 
   // Listen for system theme changes
   useEffect(() => {
@@ -93,6 +104,7 @@ const Product = ({ route }) => {
       // Pre-process subscription data to avoid repeated calculations
       const processedItems = passedMenuItems.map(item => ({
         ...item,
+        name: trimNumbersFromName(item.name), // Trim numbers from item name
         _hasSubscription: hasSubscriptionAvailable(item),
         _subscriptionLogged: false
       }));
@@ -120,6 +132,7 @@ const Product = ({ route }) => {
       // Pre-process subscription data for all items
       const processedAllItems = flatMenuItems.map(item => ({
         ...item,
+        name: trimNumbersFromName(item.name), // Trim numbers from item name
         _hasSubscription: hasSubscriptionAvailable(item),
         _subscriptionLogged: false
       }));
@@ -416,7 +429,8 @@ const Product = ({ route }) => {
 
     setLoading(true)
     try {
-      const apiUrl = `${API_BASE_URL}/menu?categoryId=${selectedCategoryId}&branchId=${branchId}`;
+      // Use high limit to get ALL items (backend has pagination with limit=100 default)
+      const apiUrl = `${API_BASE_URL}/menu?categoryId=${selectedCategoryId}&branchId=${branchId}&limit=10000`;
       console.log("🌐 Fetching fresh menu items from API:", apiUrl);
       
       const response = await fetch(apiUrl)
@@ -463,7 +477,7 @@ const Product = ({ route }) => {
           
           const processedItem = {
             id: item._id,
-            name: item.name || item.itemName,
+            name: trimNumbersFromName(item.name || item.itemName),
             price: itemPrice || 0,
             description: item.description || "",
             image: item.image,
@@ -601,7 +615,7 @@ const Product = ({ route }) => {
           setCartItems(
             data.items.map((item) => ({
               id: item.menuItemId,
-              name: item.name,
+              name: trimNumbersFromName(item.name),
               price: item.price,
               quantity: item.quantity,
               image: item.image,
@@ -632,7 +646,7 @@ const Product = ({ route }) => {
         let allItems = []
         for (const category of categories) {
           const response = await fetch(
-            `${API_BASE_URL}/menu?categoryId=${category.id}&branchId=${branchId}`,
+            `${API_BASE_URL}/menu?categoryId=${category.id}&branchId=${branchId}&limit=10000`,
           )
           const data = await response.json()
 
@@ -652,7 +666,7 @@ const Product = ({ route }) => {
               itemPrice = parseFloat(itemPrice) || 0;
               const processedItem = {
                 id: item._id,
-                name: item.name || item.itemName,
+                name: trimNumbersFromName(item.name || item.itemName),
                 price: itemPrice || 0,
                 description: item.description || "",
                 image: item.image,
@@ -723,7 +737,11 @@ const Product = ({ route }) => {
 
   // Fetch menu items for the selected category - only if no passed data
   useEffect(() => {
-    fetchMenuItems()
+    // Only fetch from API if no passed menu items
+    if (passedMenuItems.length === 0) {
+      setLoading(true)
+      fetchMenuItems()
+    }
   }, [fetchMenuItems, passedMenuItems])
 
   // Initialize animated values for categories
@@ -742,35 +760,58 @@ const Product = ({ route }) => {
       console.log("Searching with query:", query)
       if (query.trim() === "") {
         setFilteredItems(menuItems)
-        const newItemAnimatedValues = Array(menuItems.length)
-          .fill()
-          .map(() => new Animated.Value(1))
-        setItemAnimatedValues(newItemAnimatedValues)
       } else {
-        // Search only within the current category's menu items, not all items
-        const filtered = menuItems.filter((item) => item.name.toLowerCase().includes(query.toLowerCase().trim()))
+        // Search within menu items (already filtered by category)
+        const filtered = menuItems.filter((item) =>
+          item.name.toLowerCase().includes(query.toLowerCase().trim())
+        )
         setFilteredItems(filtered)
-        console.log("Filtered items:", filtered)
-        const newItemAnimatedValues = Array(filtered.length)
-          .fill()
-          .map(() => new Animated.Value(1))
-        setItemAnimatedValues(newItemAnimatedValues)
+        console.log("Filtered items:", filtered.length)
       }
     }, 300),
-    [menuItems], // Only depend on menuItems, not allMenuItems
+    [menuItems],
   )
+
+  // Add loading state for search/filter operations
+  const [isSearching, setIsSearching] = useState(false)
 
   // Update filtered items based on search query
   useEffect(() => {
-    if (searchQuery.trim() === "") {
-      setFilteredItems(menuItems)
+    if (searchQuery.trim() !== "") {
+      setIsSearching(true)
+      // Simulate search delay for UX
+      const timer = setTimeout(() => {
+        const filtered = menuItems.filter((item) =>
+          item.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
+        )
+        setFilteredItems(filtered)
+        setIsSearching(false)
+      }, 300)
+      return () => clearTimeout(timer)
     } else {
-      const filtered = menuItems.filter((item) => 
-        item.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
-      )
-      setFilteredItems(filtered)
+      setFilteredItems(menuItems)
+      setIsSearching(false)
     }
   }, [searchQuery, menuItems])
+
+  // Ensure itemAnimatedValues matches filteredItems length
+  useEffect(() => {
+    if (filteredItems.length !== itemAnimatedValues.length) {
+      const newAnimatedValues = Array(filteredItems.length)
+        .fill()
+        .map((_, i) => itemAnimatedValues[i] || new Animated.Value(0))
+      setItemAnimatedValues(newAnimatedValues)
+    }
+  }, [filteredItems.length])
+
+  // Debug: Log when filteredItems changes
+  useEffect(() => {
+    console.log("📋 filteredItems updated:", {
+      count: filteredItems.length,
+      searchQuery: searchQuery,
+      firstItem: filteredItems[0]?.name || 'none'
+    });
+  }, [filteredItems, searchQuery]);
 
   // Update cart visibility
   useEffect(() => {
@@ -1073,11 +1114,14 @@ const Product = ({ route }) => {
     // Use pre-calculated subscription data instead of calling function repeatedly
     const hasSubscription = item._hasSubscription;
     const hasActiveSubscriptionForItem = hasActiveSubscription(item.id);
-    
+
+    // Get animation value with fallback to 1 (no animation) if index is out of bounds
+    const animatedValue = itemAnimatedValues[index] || new Animated.Value(1);
+
     return (
       <Animated.View style={[
-        styles.foodCard, 
-        { transform: [{ scale: itemAnimatedValues[index] || 1 }] },
+        styles.foodCard,
+        { transform: [{ scale: animatedValue }] },
         colorScheme === 'dark' ? styles.foodCardDark : styles.foodCardLight
       ]}>
         <View style={styles.foodItemContent}>
@@ -1137,40 +1181,7 @@ const Product = ({ route }) => {
     )
   }
 
-  // Quick lookup function to fetch menu item by number
-  const handleQuickLookup = async () => {
-    if (!quickLookupNumber.trim()) {
-      Alert.alert("Error", "Please enter a menu item number")
-      return
-    }
 
-    setQuickLookupLoading(true)
-    setQuickLookupResult(null)
-    
-    try {
-      const response = await fetch(`http://localhost:5175/products?number=${quickLookupNumber.trim()}`)
-      const data = await response.json()
-      
-      if (response.ok && data) {
-        console.log("Quick lookup result:", data)
-        setQuickLookupResult(data)
-      } else {
-        Alert.alert("Not Found", `No menu item found with number ${quickLookupNumber}`)
-        setQuickLookupResult(null)
-      }
-    } catch (error) {
-      console.error("Quick lookup error:", error)
-      Alert.alert("Error", "Failed to fetch menu item. Please try again.")
-      setQuickLookupResult(null)
-    } finally {
-      setQuickLookupLoading(false)
-    }
-  }
-
-  const clearQuickLookup = () => {
-    setQuickLookupNumber("")
-    setQuickLookupResult(null)
-  }
 
   // Toggle search function
   const toggleSearch = () => {
@@ -1237,87 +1248,6 @@ const Product = ({ route }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Quick Lookup Section */}
-      <View style={[styles.quickLookupContainer, colorScheme === 'dark' ? styles.quickLookupContainerDark : styles.quickLookupContainerLight]}>
-       
-        
-        <View style={styles.quickLookupInputContainer}>
-          <TextInput
-            style={[styles.quickLookupInput, colorScheme === 'dark' ? styles.quickLookupInputDark : styles.quickLookupInputLight]}
-            placeholder="Enter menu name here..."
-            placeholderTextColor={colorScheme === 'dark' ? '#888' : '#999'}
-            value={quickLookupNumber}
-            onChangeText={setQuickLookupNumber}
-            keyboardType="numeric"
-            returnKeyType="search"
-            onSubmitEditing={handleQuickLookup}
-          />
-          <TouchableOpacity 
-            style={[styles.quickLookupButton, quickLookupLoading && styles.quickLookupButtonDisabled]} 
-            onPress={handleQuickLookup}
-            disabled={quickLookupLoading}
-          >
-            {quickLookupLoading ? (
-              <ActivityIndicator size="small" color="#FFD700" />
-            ) : (
-              <Icon name="search" size={20} color="#FFD700" />
-            )}
-          </TouchableOpacity>
-          {(quickLookupNumber || quickLookupResult) && (
-            <TouchableOpacity style={styles.quickLookupClearButton} onPress={clearQuickLookup}>
-              <Icon name="clear" size={20} color="#800000" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Quick Lookup Result */}
-        {quickLookupResult && (
-          <View style={[styles.quickLookupResult, colorScheme === 'dark' ? styles.quickLookupResultDark : styles.quickLookupResultLight]}>
-            <View style={styles.quickResultContent}>
-              <EnhancedImage
-                item={quickLookupResult}
-                style={styles.quickResultImage}
-              />
-              <View style={styles.quickResultDetails}>
-                <Text style={[styles.quickResultName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-                  {quickLookupResult.name}
-                </Text>
-                <Text style={[styles.quickResultPrice, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-                  ₹{parseFloat(quickLookupResult.price || 0).toFixed(2)}
-                </Text>
-                {quickLookupResult.description && (
-                  <Text style={[styles.quickResultDescription, colorScheme === 'dark' ? styles.descriptionDark : styles.descriptionLight]} numberOfLines={2}>
-                    {quickLookupResult.description}
-                  </Text>
-                )}
-              </View>
-              <TouchableOpacity 
-                style={styles.quickResultAddButton}
-                onPress={() => {
-                  // Add the quick lookup result to cart
-                  const formattedItem = {
-                    id: quickLookupResult._id || quickLookupResult.id,
-                    name: quickLookupResult.name,
-                    price: parseFloat(quickLookupResult.price || 0),
-                    description: quickLookupResult.description || "",
-                    image: quickLookupResult.image,
-                    categoryId: quickLookupResult.categoryId,
-                    branchId: quickLookupResult.branchId || branchId,
-                    stock: quickLookupResult.stock || 0,
-                    isActive: quickLookupResult.isActive !== false,
-                    subscriptionEnabled: quickLookupResult.subscriptionEnabled || false,
-                    _hasSubscription: hasSubscriptionAvailable(quickLookupResult)
-                  }
-                  handleAddToCart(formattedItem, 0)
-                }}
-              >
-                <Icon name="add-shopping-cart" size={18} color="#FFD700" />
-                <Text style={styles.quickResultAddButtonText}>ADD</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </View>
 
       {/* Meal of the Day Product Section */}
       {mealOfTheDayProduct && (
@@ -1406,18 +1336,28 @@ const Product = ({ route }) => {
 
       <FlatList
         data={filteredItems}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id? item.id.toString() : Math.random().toString()}
         renderItem={renderFoodItem}
         contentContainerStyle={styles.menuContainer}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          searchQuery.trim() !== "" && filteredItems.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={[styles.emptyStateText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>No items found</Text>
+        ListHeaderComponent={
+          isSearching ? (
+            <View style={styles.searchLoadingContainer}>
+              <ActivityIndicator size="small" color="#FFD700" />
+              <Text style={[styles.searchLoadingText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Searching...</Text>
             </View>
-          ) : menuItems.length === 0 ? (
+          ) : null
+        }
+        ListEmptyComponent={
+          searchQuery.trim() !== "" && !isSearching ? (
             <View style={styles.emptyState}>
-              <Text style={[styles.emptyStateText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>No menu items available in this category</Text>
+              <Icon name="search-off" size={60} color="#800000" />
+              <Text style={[styles.emptyStateText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>No items found for "{searchQuery}"</Text>
+            </View>
+          ) : menuItems.length === 0 && !loading ? (
+            <View style={styles.emptyState}>
+              <Icon name="restaurant-menu" size={60} color="#800000" />
+              <Text style={[styles.emptyStateText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>No menu items available</Text>
             </View>
           ) : null
         }
@@ -1756,129 +1696,6 @@ const styles = StyleSheet.create({
     right: 10,
     top: 10,
     padding: 4,
-  },
-  // Quick Lookup Styles
-  quickLookupContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    elevation: 1,
-  },
-  quickLookupContainerLight: {
-    backgroundColor: "#fff",
-    borderBottomColor: "#f0f0f0",
-  },
-  quickLookupContainerDark: {
-    backgroundColor: "#2a2a2a",
-    borderBottomColor: "#444",
-  },
-  quickLookupHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  quickLookupTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-  quickLookupInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  quickLookupInput: {
-    flex: 1,
-    height: 40,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    fontSize: 16,
-    borderWidth: 1,
-  },
-  quickLookupInputLight: {
-    backgroundColor: "#f3f4f6",
-    borderColor: "#e5e7eb",
-    color: "#1f2937",
-  },
-  quickLookupInputDark: {
-    backgroundColor: "#3a3a3a",
-    borderColor: "#555",
-    color: "#e5e5e5",
-  },
-  quickLookupButton: {
-    backgroundColor: "#800000",
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  quickLookupButtonDisabled: {
-    opacity: 0.6,
-  },
-  quickLookupClearButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f3f4f6",
-  },
-  quickLookupResult: {
-    marginTop: 12,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-  },
-  quickLookupResultLight: {
-    backgroundColor: "#f8f9fa",
-    borderColor: "#e5e7eb",
-  },
-  quickLookupResultDark: {
-    backgroundColor: "#3a3a3a",
-    borderColor: "#555",
-  },
-  quickResultContent: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  quickResultImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  quickResultDetails: {
-    flex: 1,
-  },
-  quickResultName: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  quickResultPrice: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#800000",
-    marginBottom: 4,
-  },
-  quickResultDescription: {
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  quickResultAddButton: {
-    backgroundColor: "#800000",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  quickResultAddButtonText: {
-    color: "#FFD700",
-    fontWeight: "600",
-    fontSize: 14,
   },
   categoryWrapper: {
     paddingVertical: 8,
@@ -2275,6 +2092,18 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     fontSize: 16,
+    textAlign: "center",
+    marginTop: 10,
+  },
+  searchLoadingContainer: {
+    paddingVertical: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchLoadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: "#888",
   },
   // Meal of the Day Styles
   mealOfTheDaySection: {
