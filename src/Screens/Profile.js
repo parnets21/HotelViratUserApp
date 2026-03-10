@@ -33,7 +33,6 @@ const Profile = () => {
   const [isFetching, setIsFetching] = useState(true);
   const [colorScheme, setColorScheme] = useState(Appearance.getColorScheme());
   const [roomBookings, setRoomBookings] = useState([]);
-  const [cancellingBooking, setCancellingBooking] = useState(null);
 
   // Listen for system color scheme changes
   useEffect(() => {
@@ -213,52 +212,18 @@ const Profile = () => {
       
       const response = await fetch(`${BASE_URL}/api/v1/hotel/room-booking?userId=${userId}`);
       const data = await response.json();
-      if (response.ok && Array.isArray(data)) {
+      
+      if (response.ok && data.success && Array.isArray(data.bookings)) {
+        setRoomBookings(data.bookings);
+      } else if (response.ok && Array.isArray(data)) {
+        // Fallback for old API response format
         setRoomBookings(data);
+      } else {
+        setRoomBookings([]);
       }
     } catch (error) {
       console.error('Error fetching room bookings:', error);
-    }
-  };
-
-  // Request cancellation (with 20% deduction)
-  const requestCancellation = (booking) => {
-    const refundAmount = booking.totalPrice * 0.8; // 80% refund
-    const deduction = booking.totalPrice * 0.2; // 20% deduction
-    
-    Alert.alert(
-      "Cancel Booking",
-      `Are you sure you want to cancel this booking?\n\nCancellation charges: ₹${deduction.toFixed(2)} (20%)\nRefund amount: ₹${refundAmount.toFixed(2)} (80%)\n\nYour cancellation request will be sent to admin for approval.`,
-      [
-        { text: "No", style: "cancel" },
-        { 
-          text: "Yes, Cancel", 
-          style: "destructive",
-          onPress: () => submitCancellation(booking._id)
-        }
-      ]
-    );
-  };
-
-  const submitCancellation = async (bookingId) => {
-    setCancellingBooking(bookingId);
-    try {
-      const response = await fetch(`${BASE_URL}/api/v1/hotel/room-booking/${bookingId}/request-cancel`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      if (response.ok) {
-        showToast('Cancellation request submitted. Waiting for admin approval.', 'success');
-        fetchRoomBookings();
-      } else {
-        const data = await response.json();
-        showToast(data.message || 'Failed to submit cancellation request', 'error');
-      }
-    } catch (error) {
-      showToast('Error submitting cancellation request', 'error');
-    } finally {
-      setCancellingBooking(null);
+      setRoomBookings([]);
     }
   };
 
@@ -512,24 +477,6 @@ const Profile = () => {
                     ({booking.nights} {booking.nights === 1 ? 'Night' : 'Nights'})
                   </Text>
                 </View>
-                
-                {(booking.status === 'confirmed' || booking.status === 'pending') && (
-                  <TouchableOpacity
-                    style={styles.cancelBookingBtn}
-                    onPress={() => requestCancellation(booking)}
-                    disabled={cancellingBooking === booking._id}
-                  >
-                    {cancellingBooking === booking._id ? (
-                      <ActivityIndicator size="small" color="#dc2626" />
-                    ) : (
-                      <Text style={styles.cancelBookingText}>Request Cancellation</Text>
-                    )}
-                  </TouchableOpacity>
-                )}
-                
-                {booking.status === 'cancel-requested' && (
-                  <Text style={styles.pendingCancelText}>Cancellation pending admin approval</Text>
-                )}
               </View>
             ))
           ) : (

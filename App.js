@@ -7,6 +7,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Home from "./src/Screens/Home";
 import MyCart from "./src/Screens/MyCart";
 import Product from "./src/Screens/Product";
+import Categories from "./src/Screens/Categories";
 import CheckOut from "./src/Screens/CheckOut";
 import { CartProvider } from "./src/context/CartContext";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
@@ -33,6 +34,7 @@ function MainStackScreen() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeScreen" component={Home} />
+      <Stack.Screen name="Categories" component={Categories} />
       <Stack.Screen name="Product" component={Product} />
       <Stack.Screen name="MyCart" component={MyCart} />
       <Stack.Screen name="Subscription" component={Subscription} />
@@ -59,8 +61,6 @@ function TabNavigator() {
             iconName = focused ? "bed" : "bed-outline";
           } else if (route.name === "MyOrders") {
             iconName = focused ? "list" : "list-outline";
-          } else if (route.name === "MySubscriptions") {
-            iconName = focused ? "refresh" : "refresh-outline";
           } else if (route.name === "Profile") {
             iconName = focused ? "person" : "person-outline";
           }
@@ -78,7 +78,6 @@ function TabNavigator() {
       <Tab.Screen name="Home" component={MainStackScreen} />
       <Tab.Screen name="RoomBooking" component={RoomBooking} options={{ title: "Rooms" }} />
       <Tab.Screen name="MyOrders" component={MyOrders} />
-      <Tab.Screen name="MySubscriptions" component={MySubscriptions} />
       <Tab.Screen name="Profile" component={Profile} />
     </Tab.Navigator>
   );

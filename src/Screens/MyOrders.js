@@ -113,14 +113,12 @@ const OrderItem = ({ item, onPress, onCancelPress, canCancelOrder, isLastItem, c
           <>
             {item.items.slice(0, 2).map((orderItem, index) => (
               <View key={index} style={styles.orderItemPreview}>
-                <Image
-                  source={
-                    orderItem?.image
-                      ? { uri: `${orderItem.image}` }
-                      : require("../assets/lemon.jpg")
-                  }
-                  style={styles.orderItemImage}
-                />
+                {orderItem?.image && (
+                  <Image
+                    source={{ uri: orderItem.image }}
+                    style={styles.orderItemImage}
+                  />
+                )}
                 <Text style={[styles.orderItemName, colorScheme === 'dark' ? styles.textDark : styles.textLight]} numberOfLines={1}>
                   {orderItem?.quantity || 0}x {orderItem?.name || 'Unknown Item'}
                 </Text>
@@ -230,14 +228,12 @@ const OrderDetailModal = ({ order, onClose, onCancelPress, canCancelOrder, loadi
                 {order.items && order.items.length > 0 ? (
                   order.items.map((item, index) => (
                     <View key={index} style={[styles.modalItem, colorScheme === 'dark' ? styles.modalItemDark : styles.modalItemLight]}>
-                      <Image
-                        source={
-                          item?.image
-                            ? { uri: `${item.image}` }
-                            : require("../assets/lemon.jpg")
-                        }
-                        style={styles.modalItemImage}
-                      />
+                      {item?.image && (
+                        <Image
+                          source={{ uri: item.image }}
+                          style={styles.modalItemImage}
+                        />
+                      )}
                       <View style={styles.modalItemDetails}>
                         <View style={styles.modalItemTop}>
                           <Text style={[styles.modalItemName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>{item?.name || 'Unknown Item'}</Text>

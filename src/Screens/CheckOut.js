@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import {
   View,
   Text,
@@ -1288,7 +1288,16 @@ const CheckOut = () => {
   const navigation = useNavigation()
   const { getBranchCartItems, calculateBranchTotal, clearBranchCart, selectedBranch } = useCart()
   const fadeAnim = useRef(new Animated.Value(0)).current
+  const isMounted = useRef(true)
   const [colorScheme, setColorScheme] = useState(Appearance.getColorScheme())
+
+  // Track component mount status
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
 
   // Listen for system color scheme changes
   useEffect(() => {
@@ -1304,7 +1313,7 @@ const CheckOut = () => {
   const [paymentMethod, setPaymentMethod] = useState("cash")
   const [couponCode, setCouponCode] = useState("")
   const [appliedCoupon, setAppliedCoupon] = useState(null)
-  const [deliveryOption, setDeliveryOption] = useState("delivery")
+  const [deliveryOption] = useState("delivery") // Always delivery, no pickup option
   const [specialInstructions, setSpecialInstructions] = useState("")
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
 
@@ -1545,41 +1554,56 @@ const CheckOut = () => {
   }, [userId, selectedBranch])
 
   // Show toast message with custom duration
-  const showToast = (message, type = "success", loading = false, duration = 2000) => {
+  const showToast = useCallback((message, type = "success", loading = false, duration = 2000) => {
+    if (!isMounted.current) return
+    
     setToast({ message, type })
     setIsOrderLoading(loading)
 
     // Start animation
-    Animated.timing(fadeAnim, {
+    const fadeInAnimation = Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 300,
       useNativeDriver: true,
-    }).start()
+    })
+    
+    fadeInAnimation.start()
 
     // Set timeout to hide toast
     const timer = setTimeout(() => {
-      Animated.timing(fadeAnim, {
+      if (!isMounted.current) return
+      
+      const fadeOutAnimation = Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 300,
         useNativeDriver: true,
-      }).start(() => {
-        setToast(null)
-        if (!loading) {
-          setIsOrderLoading(false)
+      })
+      
+      fadeOutAnimation.start(({ finished }) => {
+        // Only update state if animation completed naturally and component is still mounted
+        if (finished && isMounted.current) {
+          setToast(null)
+          if (!loading) {
+            setIsOrderLoading(false)
+          }
         }
       })
     }, duration)
 
-    return () => clearTimeout(timer)
-  }
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      clearTimeout(timer)
+      fadeInAnimation.stop()
+    }
+  }, [fadeAnim])
 
   // Calculate order totals
   const subtotal = cartItems.reduce((total, item) => total + item.price * item.quantity, 0)
-  const deliveryFee = deliveryOption === "delivery" ? 40 : 0
+  const deliveryFee = 40 // Fixed delivery fee
   const discount = couponDetails ? couponDetails.discountAmount : 0
   const discountedSubtotal = subtotal - discount
-  const tax = discountedSubtotal * 0.05
-  const total = discountedSubtotal + deliveryFee + tax
+  const tax = 0 // Tax removed
+  const total = discountedSubtotal + deliveryFee
 
   // Debug coupon state
   console.log('🎫 Coupon Debug:', {
@@ -1884,7 +1908,7 @@ const CheckOut = () => {
       return
     }
 
-    if (deliveryOption === "delivery" && !selectedAddress) {
+    if (!selectedAddress) {
       showToast("Please select a delivery address", "error")
       return
     }
@@ -2181,10 +2205,12 @@ const CheckOut = () => {
           <View style={[styles.orderSummary, colorScheme === 'dark' ? styles.orderSummaryDark : styles.orderSummaryLight]}>
             {cartItems.map((item) => (
               <View key={item.id} style={[styles.orderItem, colorScheme === 'dark' ? styles.orderItemDark : styles.orderItemLight]}>
-                <Image
-                  source={item.image ? { uri: item.image } : require("../assets/lemon.jpg")}
-                  style={styles.orderItemImage}
-                />
+                {item.image && (
+                  <Image
+                    source={{ uri: item.image }}
+                    style={styles.orderItemImage}
+                  />
+                )}
                 <View style={styles.orderItemDetails}>
                   <View style={styles.orderItemLeft}>
                     <Text style={styles.orderItemQuantity}>{item.quantity}x</Text>
@@ -2197,76 +2223,45 @@ const CheckOut = () => {
           </View>
         </View>
 
-        {/* Delivery Option */}
-        <View style={[styles.section, colorScheme === 'dark' ? styles.sectionDark : styles.sectionLight]}>
-          <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Delivery Option</Text>
-          <View style={styles.deliveryOptions}>
-            <TouchableOpacity
-              style={[styles.deliveryOption, deliveryOption === "delivery" && styles.deliveryOptionSelected, colorScheme === 'dark' ? styles.deliveryOptionDark : styles.deliveryOptionLight]}
-              onPress={() => setDeliveryOption("delivery")}
-            >
-              <Icon name="delivery-dining" size={24} color={deliveryOption === "delivery" ? "#FFD700" : colorScheme === 'dark' ? "#888" : "#999"} />
-              <Text
-                style={[styles.deliveryOptionText, deliveryOption === "delivery" && styles.deliveryOptionTextSelected, colorScheme === 'dark' ? styles.textDark : styles.textLight]}
-              >
-                Delivery
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.deliveryOption, deliveryOption === "pickup" && styles.deliveryOptionSelected, colorScheme === 'dark' ? styles.deliveryOptionDark : styles.deliveryOptionLight]}
-              onPress={() => setDeliveryOption("pickup")}
-            >
-              <Icon name="store" size={24} color={deliveryOption === "pickup" ? "#FFD700" : colorScheme === 'dark' ? "#888" : "#999"} />
-              <Text
-                style={[styles.deliveryOptionText, deliveryOption === "pickup" && styles.deliveryOptionTextSelected, colorScheme === 'dark' ? styles.textDark : styles.textLight]}
-              >
-                Pickup
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* Delivery Address */}
-        {deliveryOption === "delivery" && (
-          <View style={[styles.section, colorScheme === 'dark' ? styles.sectionDark : styles.sectionLight]}>
-            <View style={styles.sectionTitleRow}>
-              <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Delivery Address</Text>
-              <TouchableOpacity
-                style={[styles.addButton, colorScheme === 'dark' ? styles.addButtonDark : styles.addButtonLight]}
-                onPress={() => {
-                  setEditingAddress(null)
-                  setShowAddressModal(true)
-                }}
-              >
-                <Icon name="add" size={18} color="#FFD700" />
-                <Text style={styles.addButtonText}>Add New</Text>
-              </TouchableOpacity>
-            </View>
-
-            {addresses.length === 0 ? (
-              <View style={[styles.noAddressContainer, colorScheme === 'dark' ? styles.noAddressContainerDark : styles.noAddressContainerLight]}>
-                <Icon name="location-off" size={40} color={colorScheme === 'dark' ? "#888" : "#999"} />
-                <Text style={[styles.noAddressText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>No saved addresses</Text>
-                <Text style={[styles.noAddressSubtext, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Add a new address to continue</Text>
-              </View>
-            ) : (
-              <View style={styles.addressList}>
-                {addresses.map((address) => (
-                  <AddressItem
-                    key={address._id}
-                    address={address}
-                    selected={selectedAddress && selectedAddress._id === address._id}
-                    onSelect={setSelectedAddress}
-                    onSetDefault={handleSetDefaultAddress}
-                    onEdit={handleEditAddress}
-                    onDelete={handleDeleteAddress}
-                    colorScheme={colorScheme}
-                  />
-                ))}
-              </View>
-            )}
+        <View style={[styles.section, colorScheme === 'dark' ? styles.sectionDark : styles.sectionLight]}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Delivery Address</Text>
+            <TouchableOpacity
+              style={[styles.addButton, colorScheme === 'dark' ? styles.addButtonDark : styles.addButtonLight]}
+              onPress={() => {
+                setEditingAddress(null)
+                setShowAddressModal(true)
+              }}
+            >
+              <Icon name="add" size={18} color="#FFD700" />
+              <Text style={styles.addButtonText}>Add New</Text>
+            </TouchableOpacity>
           </View>
-        )}
+
+          {addresses.length === 0 ? (
+            <View style={[styles.noAddressContainer, colorScheme === 'dark' ? styles.noAddressContainerDark : styles.noAddressContainerLight]}>
+              <Icon name="location-off" size={40} color={colorScheme === 'dark' ? "#888" : "#999"} />
+              <Text style={[styles.noAddressText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>No saved addresses</Text>
+              <Text style={[styles.noAddressSubtext, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Add a new address to continue</Text>
+            </View>
+          ) : (
+            <View style={styles.addressList}>
+              {addresses.map((address) => (
+                <AddressItem
+                  key={address._id}
+                  address={address}
+                  selected={selectedAddress && selectedAddress._id === address._id}
+                  onSelect={setSelectedAddress}
+                  onSetDefault={handleSetDefaultAddress}
+                  onEdit={handleEditAddress}
+                  onDelete={handleDeleteAddress}
+                  colorScheme={colorScheme}
+                />
+              ))}
+            </View>
+          )}
+        </View>
 
         {/* Contact Information */}
         <View style={[styles.section, colorScheme === 'dark' ? styles.sectionDark : styles.sectionLight]}>
@@ -2388,15 +2383,9 @@ const CheckOut = () => {
                 <Text style={[styles.priceValue, styles.discountValue]}>-₹{discount.toFixed(2)}</Text>
               </View>
             )}
-            {deliveryOption === "delivery" && (
-              <View style={[styles.priceRow, colorScheme === 'dark' ? styles.priceRowDark : styles.priceRowLight]}>
-                <Text style={[styles.priceLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Delivery Fee</Text>
-                <Text style={[styles.priceValue, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{deliveryFee.toFixed(2)}</Text>
-              </View>
-            )}
             <View style={[styles.priceRow, colorScheme === 'dark' ? styles.priceRowDark : styles.priceRowLight]}>
-              <Text style={[styles.priceLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Tax (5%)</Text>
-              <Text style={[styles.priceValue, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{tax.toFixed(2)}</Text>
+              <Text style={[styles.priceLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Delivery Fee</Text>
+              <Text style={[styles.priceValue, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{deliveryFee.toFixed(2)}</Text>
             </View>
             <View style={[styles.priceRow, styles.totalRow, colorScheme === 'dark' ? styles.priceRowDark : styles.priceRowLight]}>
               <Text style={[styles.totalLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Total</Text>

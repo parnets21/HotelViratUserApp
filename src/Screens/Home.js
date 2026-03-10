@@ -19,11 +19,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
 import { useCart } from "../context/CartContext";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, IMAGE_BASE_URL } from "../config/api";
 // import MealOfTheDayCard from '../components/MealOfTheDayCard';
 // import MealOfTheDayPopup from '../components/MealOfTheDayPopup';
-import BookTableCard from '../components/BookTableCard';
 
 const { width } = Dimensions.get("window");
 
@@ -40,16 +38,13 @@ const Home = () => {
   
   const [branches, setBranches] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [failedImages, setFailedImages] = useState(new Set());
   const [menuItems, setMenuItems] = useState({});
   const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState(null);
   const [error, setError] = useState(null);
   const [colorScheme, setColorScheme] = useState(Appearance.getColorScheme());
   // const [showMealPopup, setShowMealPopup] = useState(false);
   const [buttonAnimation] = useState(new Animated.Value(0));
-  const [showTooltip, setShowTooltip] = useState({ meal: false, table: false });
 
   // Listen for system theme changes
   useEffect(() => {
@@ -86,20 +81,7 @@ const Home = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Fetch user ID from AsyncStorage
-  useEffect(() => {
-    const getUserId = async () => {
-      try {
-        const storedUserId = await AsyncStorage.getItem('userId');
-        if (storedUserId) {
-          setUserId(storedUserId);
-        }
-      } catch (error) {
-        console.error('Error getting user ID:', error);
-      }
-    };
-    getUserId();
-  }, []);
+
 
   // Fetch branches from backend API
   useEffect(() => {
@@ -165,7 +147,7 @@ const Home = () => {
   // Fetch categories, menu items, and offers for selected branch - FETCH FROM ADMIN PANEL
   useEffect(() => {
     const fetchData = async () => {
-      if (!branches.length) return;
+      if (!branches.length || selectedBranch === null || selectedBranch === undefined) return;
       
       console.log("🍽️ Fetching menu data from admin panel...");
       setLoading(true);
@@ -175,10 +157,16 @@ const Home = () => {
       clearImageCache();
       
       try {
-        // Fetch categories from admin panel backend
+        // Get the selected branch ID
+        const currentBranchId = branches[selectedBranch]?.id;
+        console.log("🏢 Selected branch ID:", currentBranchId);
+        
+        // Fetch categories from admin panel backend filtered by branch
         console.log("📋 Fetching categories from backend...");
-        console.log("📋 Categories URL:", `${API_BASE_URL}/category`);
-        const categoriesResponse = await fetch(`${API_BASE_URL}/category`);
+        console.log("🏢 Current branch ID for category filter:", currentBranchId);
+        const categoriesUrl = `${API_BASE_URL}/category?branchId=${currentBranchId}`;
+        console.log("📋 Categories URL:", categoriesUrl);
+        const categoriesResponse = await fetch(categoriesUrl);
         
         console.log("📋 Categories response status:", categoriesResponse.status);
         console.log("📋 Categories response headers:", categoriesResponse.headers);
@@ -233,19 +221,56 @@ const Home = () => {
         const productsText = await productsResponse.text();
         console.log("🍽️ Products raw response:", productsText.substring(0, 200) + "...");
         
-        let productsData;
+        let productsJsonData;
         try {
-          productsData = JSON.parse(productsText);
+          productsJsonData = JSON.parse(productsText);
         } catch (parseError) {
           console.log("🍽️ Products JSON parse error:", parseError);
           console.log("🍽️ Full response text:", productsText);
           throw new Error(`Products response is not valid JSON: ${parseError.message}`);
         }
         
-        console.log("✅ Products fetched:", productsData);
+        console.log("✅ Products response received:", productsJsonData);
         
-        // Process categories data
-        const processedCategories = categoriesData.map(category => {
+        // Extract products array from response (backend returns {success, data, pagination})
+        let productsData = [];
+        if (productsJsonData && typeof productsJsonData === 'object') {
+          if (Array.isArray(productsJsonData.data)) {
+            productsData = productsJsonData.data;
+            console.log("✅ Extracted products from response.data");
+          } else if (Array.isArray(productsJsonData)) {
+            productsData = productsJsonData;
+            console.log("✅ Response is already an array");
+          } else {
+            console.log("⚠️ Unexpected response structure:", Object.keys(productsJsonData));
+            throw new Error("Products data is not in expected format");
+          }
+        }
+        
+        console.log(`✅ Total products fetched: ${productsData.length}`);
+        
+        // Filter only restaurant category items
+        const restaurantProducts = productsData.filter(product => {
+          const categoryName = product.categoryId?.name || product.category?.name || '';
+          const isRestaurant = categoryName.toLowerCase().includes('restaurant');
+          if (isRestaurant) {
+            console.log(`✅ Restaurant product found: ${product.name || product.itemName} (Category: ${categoryName})`);
+          }
+          return isRestaurant;
+        });
+        
+        console.log(`✅ Filtered ${restaurantProducts.length} restaurant products from ${productsData.length} total products`);
+        
+        // Process categories data - filter only restaurant category
+        const processedCategories = categoriesData
+          .filter(category => {
+            const isRestaurant = category.name.toLowerCase().includes('restaurant');
+            if (isRestaurant) {
+              console.log(`✅ Restaurant category found: ${category.name}`);
+            }
+            return isRestaurant;
+          })
+          .map(category => {
           let imageUrl = null;
           if (category.image) {
             // Try different URL formats for better compatibility
@@ -292,7 +317,7 @@ const Home = () => {
         console.log("🔍 Sample product structure:", productsData[0]);
         
         // Group products by their category
-        productsData.forEach(product => {
+        restaurantProducts.forEach(product => {
           // Handle different possible category ID structures
           const categoryId = product.categoryId?._id || 
                            product.categoryId?.id || 
@@ -531,6 +556,7 @@ const Home = () => {
                 console.log("🔍 Current selectedBranch:", selectedBranch);
                 setShowBranchModal(true);
               }}
+              activeOpacity={0.7}
             >
               <View style={styles.branchSelectorLeft}>
                 <Icon name="location-on" size={20} color="#800000" />
@@ -602,57 +628,8 @@ const Home = () => {
             />
           </View>
         )}
-
-        {/* Categories */}
-        <View style={styles.sectionContainer}>
-          <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Our Menu</Text>
-          {categories.length > 0 ? (
-            <FlatList
-              data={categories}
-              keyExtractor={(item) => (item.id || item._id || 'unknown').toString()}
-              numColumns={2}
-              scrollEnabled={false}
-              renderItem={({ item, index }) => {
-                const itemCount = menuItems[item.id]?.length || 0;
-                return (
-                  <TouchableOpacity 
-                    style={styles.categoryCard} 
-                    onPress={() => handleCategoryPress(item.id, index)}
-                  >
-                    <Image 
-                      source={
-                        failedImages.has(item.id) || !item.image 
-                          ? require("../assets/lemon.jpg")
-                          : { uri: item.image }
-                      } 
-                      style={styles.categoryImage}
-                      onError={(error) => {
-                        console.log("❌ Category image failed:", item.name, item.image);
-                        console.log("❌ Error details:", error.nativeEvent.error);
-                        setFailedImages(prev => new Set([...prev, item.id]));
-                      }}
-                      onLoad={() => {
-                        console.log("✅ Category image loaded:", item.name, item.image);
-                      }}
-                      defaultSource={require("../assets/lemon.jpg")}
-                    />
-                    <View style={styles.categoryOverlay}>
-                      <Text style={styles.categoryCardText}>{item.name}</Text>
-                      {itemCount > 0 && (
-                        <Text style={styles.categoryItemCount}>{itemCount} items</Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-              contentContainerStyle={styles.categoriesContainer}
-            />
-          ) : (
-            <View style={styles.noDataContainer}>
-              <Text style={[styles.noDataText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>No menu categories available</Text>
-            </View>
-          )}
-        </View>
+     
+       
       </ScrollView>
 
       {/* Branch Selection Modal */}
@@ -683,6 +660,13 @@ const Home = () => {
                       console.log("🔄 Branch selected:", index, item.name);
                       setSelectedBranch(index);
                       setShowBranchModal(false);
+                      
+                      // Navigate to Categories screen with branch data
+                      navigation.navigate("Categories", {
+                        branchId: item.id,
+                        branchName: item.name,
+                        branchIndex: index
+                      });
                     }}
                   >
                     <View style={styles.branchItemLeft}>
@@ -796,38 +780,39 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
+    paddingVertical: 18,
+    borderBottomWidth: 0,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
   },
   headerLight: {
     backgroundColor: "#fff",
-    borderBottomColor: "#e5e7eb",
   },
   headerDark: {
     backgroundColor: "#2a2a2a",
-    borderBottomColor: "#444",
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
   },
   headerText: {
-    fontSize: 24,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    color: "#800000",
   },
   cartButton: {
     backgroundColor: "#800000",
-    padding: 10,
+    padding: 12,
     borderRadius: 50,
-    shadowColor: "#000",
+    shadowColor: "#800000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
   },
   cartBadge: {
     position: "absolute",
@@ -884,24 +869,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   branchName: {
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#800000",
   },
   branchAddress: {
     fontSize: 13,
-    marginTop: 2,
+    marginTop: 3,
+    opacity: 0.7,
   },
   // Combined Banner Styles (Logo + Branch Selection)
   combinedBanner: {
     marginHorizontal: 15,
-    marginVertical: 15,
-    padding: 20,
-    borderRadius: 15,
+    marginTop: 15,
+    marginBottom: 20,
+    padding: 24,
+    borderRadius: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   combinedBannerLight: {
     backgroundColor: "#fff",
@@ -912,52 +900,62 @@ const styles = StyleSheet.create({
   logoSection: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 24,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128, 0, 0, 0.1)",
   },
   logoImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     marginRight: 20,
+    borderWidth: 3,
+    borderColor: "#FFD700",
   },
   logoTextContainer: {
     flex: 1,
   },
   logoWelcomeText: {
-    fontSize: 16,
-    fontWeight: "400",
+    fontSize: 15,
+    fontWeight: "500",
     marginBottom: 4,
+    opacity: 0.7,
   },
   logoHotelName: {
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 28,
+    fontWeight: "800",
     color: "#800000",
-    marginBottom: 4,
+    marginBottom: 6,
+    letterSpacing: 0.5,
   },
   logoTagline: {
-    fontSize: 14,
+    fontSize: 13,
     fontStyle: "italic",
-    opacity: 0.8,
+    opacity: 0.7,
+    lineHeight: 18,
   },
   branchSelectorInBanner: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    backgroundColor: "rgba(128, 0, 0, 0.05)",
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#800000",
+    backgroundColor: "rgba(128, 0, 0, 0.08)",
   },
   sectionContainer: {
-    marginBottom: 10,
+    marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 24,
+    fontWeight: "800",
     marginHorizontal: 15,
     marginTop: 10,
-    marginBottom: 15,
+    marginBottom: 16,
+    color: "#800000",
+    letterSpacing: 0.5,
   },
   offersContainer: {
     paddingLeft: 15,
@@ -965,14 +963,15 @@ const styles = StyleSheet.create({
   },
   offerCard: {
     width: width - 30,
-    height: 200,
-    borderRadius: 12,
+    height: 220,
+    borderRadius: 16,
     marginRight: 15,
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
   },
   offerImage: {
     width: "100%",
@@ -989,10 +988,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.1)",
   },
   modalContainer: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     maxHeight: "70%",
     paddingBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
   },
   modalContainerLight: {
     backgroundColor: "#fff",
@@ -1004,24 +1008,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
+    padding: 20,
     borderBottomWidth: 1,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#800000",
+    letterSpacing: 0.5,
   },
   branchItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 16,
+    paddingVertical: 18,
     paddingHorizontal: 20,
+    borderRadius: 12,
+    marginHorizontal: 12,
+    marginVertical: 4,
   },
   selectedBranchItem: {
     backgroundColor: "#fff7ed",
+    borderWidth: 2,
+    borderColor: "#800000",
   },
   selectedBranchItemDark: {
     backgroundColor: "#3a3a3a",
+    borderWidth: 2,
+    borderColor: "#FFD700",
   },
   branchItemLeft: {
     marginRight: 16,
@@ -1030,12 +1043,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   branchItemName: {
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "700",
     marginBottom: 4,
   },
   selectedBranchText: {
-    color: "#FFD700",
+    color: "#800000",
   },
   branchItemAddress: {
     fontSize: 13,
@@ -1096,14 +1109,16 @@ const styles = StyleSheet.create({
   // Table Booking Section Styles
   tableBookingCard: {
     marginHorizontal: 15,
-    marginBottom: 10,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
+    marginBottom: 15,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#800000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(128, 0, 0, 0.1)",
   },
   tableBookingCardLight: {
     backgroundColor: "#fff",
@@ -1122,25 +1137,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tableBookingIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: "#fff7ed",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 15,
+    marginRight: 16,
+    borderWidth: 2,
+    borderColor: "rgba(128, 0, 0, 0.2)",
   },
   tableBookingTextContainer: {
     flex: 1,
   },
   tableBookingTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 4,
+    fontSize: 19,
+    fontWeight: "800",
+    marginBottom: 6,
+    color: "#800000",
   },
   tableBookingSubtitle: {
     fontSize: 14,
     opacity: 0.7,
+    lineHeight: 20,
   },
   tableBookingRight: {
     flexDirection: "row",
@@ -1148,15 +1167,21 @@ const styles = StyleSheet.create({
   },
   tableBookingBadge: {
     backgroundColor: "#800000",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 20,
     marginRight: 10,
+    shadowColor: "#800000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   tableBookingBadgeText: {
-    color: "#fff",
+    color: "#FFD700",
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
   // Floating Meal of the Day Button - COMMENTED OUT
   /*

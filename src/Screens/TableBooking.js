@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,7 @@ const TableBooking = ({ route }) => {
   const [unavailableSlots, setUnavailableSlots] = useState([]);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [tableReservations, setTableReservations] = useState({}); // Store reservations by tableId
   const [bookingDetails, setBookingDetails] = useState({
     customerName: '',
     phoneNumber: '',
@@ -44,21 +45,21 @@ const TableBooking = ({ route }) => {
     specialRequests: ''
   });
 
-  // Define available time slots
+  // Define available time slots - with leading zeros to match admin format
   const timeSlots = [
-    { value: '09:00 AM - 10:00 AM', label: '9:00 AM - 10:00 AM' },
+    { value: '09:00 AM - 10:00 AM', label: '09:00 AM - 10:00 AM' },
     { value: '10:00 AM - 11:00 AM', label: '10:00 AM - 11:00 AM' },
     { value: '11:00 AM - 12:00 PM', label: '11:00 AM - 12:00 PM' },
-    { value: '12:00 PM - 01:00 PM', label: '12:00 PM - 1:00 PM' },
-    { value: '01:00 PM - 02:00 PM', label: '1:00 PM - 2:00 PM' },
-    { value: '02:00 PM - 03:00 PM', label: '2:00 PM - 3:00 PM' },
-    { value: '03:00 PM - 04:00 PM', label: '3:00 PM - 4:00 PM' },
-    { value: '04:00 PM - 05:00 PM', label: '4:00 PM - 5:00 PM' },
-    { value: '05:00 PM - 06:00 PM', label: '5:00 PM - 6:00 PM' },
-    { value: '06:00 PM - 07:00 PM', label: '6:00 PM - 7:00 PM' },
-    { value: '07:00 PM - 08:00 PM', label: '7:00 PM - 8:00 PM' },
-    { value: '08:00 PM - 09:00 PM', label: '8:00 PM - 9:00 PM' },
-    { value: '09:00 PM - 10:00 PM', label: '9:00 PM - 10:00 PM' },
+    { value: '12:00 PM - 01:00 PM', label: '12:00 PM - 01:00 PM' },
+    { value: '01:00 PM - 02:00 PM', label: '01:00 PM - 02:00 PM' },
+    { value: '02:00 PM - 03:00 PM', label: '02:00 PM - 03:00 PM' },
+    { value: '03:00 PM - 04:00 PM', label: '03:00 PM - 04:00 PM' },
+    { value: '04:00 PM - 05:00 PM', label: '04:00 PM - 05:00 PM' },
+    { value: '05:00 PM - 06:00 PM', label: '05:00 PM - 06:00 PM' },
+    { value: '06:00 PM - 07:00 PM', label: '06:00 PM - 07:00 PM' },
+    { value: '07:00 PM - 08:00 PM', label: '07:00 PM - 08:00 PM' },
+    { value: '08:00 PM - 09:00 PM', label: '08:00 PM - 09:00 PM' },
+    { value: '09:00 PM - 10:00 PM', label: '09:00 PM - 10:00 PM' },
   ];
   const [userId, setUserId] = useState(null);
 
@@ -97,7 +98,7 @@ const TableBooking = ({ route }) => {
     }
   }, [selectedBranchId]);
 
-  const fetchBranches = async () => {
+  const fetchBranches = useCallback(async () => {
     try {
       console.log("🌐 Fetching branches for table booking...");
       
@@ -130,9 +131,9 @@ const TableBooking = ({ route }) => {
       console.error("❌ Error fetching branches:", error);
       setBranches([]);
     }
-  };
+  }, [selectedBranchId]);
 
-  const refreshTables = async () => {
+  const refreshTables = useCallback(async () => {
     if (!selectedBranchId) {
       console.log("⚠️ No branch selected, cannot fetch tables");
       return;
@@ -141,15 +142,39 @@ const TableBooking = ({ route }) => {
     try {
       setLoading(true);
       
-      // Fetch tables for the selected branch from admin panel backend
-      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/table?branchId=${selectedBranchId}`);
+      // Fetch tables and all reservations for today in parallel
+      const [tablesResponse, reservationsResponse] = await Promise.all([
+        fetch(`https://hotelvirat.com/api/v1/hotel/table?branchId=${selectedBranchId}`),
+        fetch(`https://hotelvirat.com/api/v1/hotel/reservation?date=${bookingDetails.bookingDate}&limit=1000`)
+      ]);
       
-      const data = await response.json();
+      const tablesData = await tablesResponse.json();
+      const reservationsData = await reservationsResponse.json();
       
-      if (response.ok && data) {
-        const tablesArray = Array.isArray(data) ? data : [];
+      if (tablesResponse.ok && tablesData) {
+        const tablesArray = Array.isArray(tablesData) ? tablesData : [];
         setTables(tablesArray);
-        console.log('✅ Tables fetched for branch:', selectedBranchId, tablesArray);
+        console.log('✅ Tables fetched for branch:', selectedBranchId, tablesArray.length);
+        
+        // Process reservations data
+        if (reservationsResponse.ok) {
+          const reservations = reservationsData.data || reservationsData || [];
+          
+          // Group reservations by tableId
+          const reservationsByTable = {};
+          reservations.forEach(res => {
+            if (res.status !== 'cancelled' && res.tableId) {
+              const tableId = typeof res.tableId === 'object' ? res.tableId._id : res.tableId;
+              if (!reservationsByTable[tableId]) {
+                reservationsByTable[tableId] = [];
+              }
+              reservationsByTable[tableId].push(res);
+            }
+          });
+          
+          setTableReservations(reservationsByTable);
+          console.log('✅ Reservations grouped by table:', Object.keys(reservationsByTable).length);
+        }
       } else {
         console.log('⚠️ No tables found for branch:', selectedBranchId);
         setTables([]);
@@ -161,11 +186,11 @@ const TableBooking = ({ route }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedBranchId, bookingDetails.bookingDate]);
 
   const handleTableSelect = (table) => {
     console.log('🏢 Selected table:', table);
-    console.log('📅 Current booking date:', bookingDetails.bookingDate);
+    console.log('� Current booking date:', bookingDetails.bookingDate);
     
     // Don't check table.status here since tables can be available for different time slots
     // The time slot availability will be checked when user selects a time
@@ -179,242 +204,53 @@ const TableBooking = ({ route }) => {
     fetchUnavailableSlots(table._id, bookingDetails.bookingDate);
   };
 
-  const fetchUnavailableSlots = async (tableId, date) => {
-    try {
-      console.log('🔍 Fetching unavailable slots for:', { tableId, date });
-      
-      // Create multiple date format variations to try
-      const dateObj = new Date(date);
-      const dateFormats = [
-        date, // Original format (YYYY-MM-DD)
-        dateObj.toISOString().split('T')[0], // YYYY-MM-DD
-        dateObj.toLocaleDateString('en-US'), // MM/DD/YYYY
-        dateObj.toLocaleDateString('en-GB'), // DD/MM/YYYY
-        dateObj.toISOString(), // Full ISO string
-        `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}` // Manual YYYY-MM-DD
-      ];
-      
-      console.log('📅 Trying multiple date formats:', dateFormats);
-      
-      let reservations = [];
-      let apiWorked = false;
-      
-      // Try each date format until one works
-      for (const dateFormat of dateFormats) {
-        try {
-          const response = await fetch(
-            `https://hotelvirat.com/api/v1/hotel/reservation?tableId=${tableId}&date=${dateFormat}`
-          );
-          
-          console.log(`📡 API call with date "${dateFormat}": ${response.status}`);
-          
-          if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data) && data.length > 0) {
-              reservations = data;
-              apiWorked = true;
-              console.log(`✅ Success with date format: "${dateFormat}"`);
-              break;
-            } else {
-              console.log(`📋 No reservations found with date format: "${dateFormat}"`);
-            }
-          }
-        } catch (err) {
-          console.log(`❌ Error with date format "${dateFormat}":`, err.message);
+  const fetchUnavailableSlots = useCallback(async (tableId, date) => {
+      try {
+        console.log('🔍 Fetching unavailable slots for:', { tableId, date });
+
+        const response = await fetch(
+          `https://hotelvirat.com/api/v1/hotel/reservation?tableId=${tableId}&date=${date}&limit=1000`
+        );
+
+        if (!response.ok) {
+          setUnavailableSlots([]);
+          return;
         }
-      }
-      
-      // If date-specific queries didn't work, try getting all reservations and filter manually
-      if (!apiWorked) {
-        console.log('🔄 Trying to fetch all reservations and filter manually...');
-        try {
-          const allResponse = await fetch(
-            `https://hotelvirat.com/api/v1/hotel/reservation?tableId=${tableId}`
-          );
-          
-          if (allResponse.ok) {
-            const allReservations = await allResponse.json();
-            console.log('📋 All reservations for table:', allReservations);
-            
-            // Filter reservations manually by date
-            const targetDate = new Date(date);
-            reservations = allReservations.filter(reservation => {
-              const reservationDate = new Date(reservation.reservationDate);
-              const isSameDate = 
-                reservationDate.getFullYear() === targetDate.getFullYear() &&
-                reservationDate.getMonth() === targetDate.getMonth() &&
-                reservationDate.getDate() === targetDate.getDate();
-              
-              console.log(`📅 Comparing dates:`, {
-                target: targetDate.toDateString(),
-                reservation: reservationDate.toDateString(),
-                match: isSameDate,
-                reservationId: reservation._id
-              });
-              
-              return isSameDate;
-            });
-            
-            console.log(`✅ Manual filtering found ${reservations.length} reservations for the date`);
-          }
-        } catch (err) {
-          console.error('❌ Error fetching all reservations:', err);
-        }
-      }
-      
-      // If still no reservations, try without tableId filter (get all reservations and filter manually)
-      if (reservations.length === 0) {
-        console.log('🔄 Trying to fetch ALL reservations and filter by table + date...');
-        try {
-          const allResponse = await fetch(`https://hotelvirat.com/api/v1/hotel/reservation`);
-          
-          if (allResponse.ok) {
-            const allReservations = await allResponse.json();
-            console.log(`📋 Total reservations in system: ${allReservations.length}`);
-            
-            // Filter by table and date manually
-            const targetDate = new Date(date);
-            reservations = allReservations.filter(reservation => {
-              // Check table match
-              const tableMatch = 
-                reservation.tableId === tableId ||
-                (reservation.tableId && reservation.tableId._id === tableId) ||
-                (reservation.tableId && reservation.tableId.toString() === tableId);
-              
-              // Check date match
-              const reservationDate = new Date(reservation.reservationDate);
-              const dateMatch = 
-                reservationDate.getFullYear() === targetDate.getFullYear() &&
-                reservationDate.getMonth() === targetDate.getMonth() &&
-                reservationDate.getDate() === targetDate.getDate();
-              
-              console.log(`🔍 Reservation ${reservation._id}:`, {
-                tableId: reservation.tableId,
-                tableMatch,
-                reservationDate: reservationDate.toDateString(),
-                dateMatch,
-                status: reservation.status,
-                timeSlot: reservation.timeSlot
-              });
-              
-              return tableMatch && dateMatch;
-            });
-            
-            console.log(`✅ Manual table+date filtering found ${reservations.length} reservations`);
-          }
-        } catch (err) {
-          console.error('❌ Error fetching all reservations:', err);
-        }
-      }
-      
-      console.log('📋 Final reservations found:', reservations);
-      
-      // Process the reservations to get unavailable slots
-      const unavailable = reservations
-        .filter(reservation => {
-          const isNotCancelled = reservation.status !== 'cancelled';
-          console.log(`📅 Processing reservation ${reservation._id}:`, {
-            status: reservation.status,
-            timeSlot: reservation.timeSlot,
-            included: isNotCancelled
-          });
-          return isNotCancelled;
-        })
-        .map(reservation => {
-          // Comprehensive time slot normalization
-          let normalizedSlot = reservation.timeSlot;
-          
-          if (normalizedSlot) {
-            // Remove extra whitespace
-            normalizedSlot = normalizedSlot.trim();
-            
-            // Handle various format variations
-            normalizedSlot = normalizedSlot
-              // Add space before AM/PM if missing
-              .replace(/(\d)(AM|PM)/gi, '$1 $2')
-              // Normalize AM/PM case
-              .replace(/am/gi, 'AM')
-              .replace(/pm/gi, 'PM')
-              // Normalize dash spacing
-              .replace(/\s*[-–—]\s*/g, ' - ')
-              // Remove extra spaces
-              .replace(/\s+/g, ' ')
-              // Handle 12-hour format variations
-              .replace(/(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/gi, 
-                (match, h1, m1, ap1, h2, m2, ap2) => {
-                  // Ensure consistent format: "HH:MM AM - HH:MM PM"
-                  const time1 = `${h1.padStart(2, '0')}:${m1} ${ap1.toUpperCase()}`;
-                  const time2 = `${h2.padStart(2, '0')}:${m2} ${ap2.toUpperCase()}`;
-                  return `${time1} - ${time2}`;
-                });
-          }
-          
-          console.log(`🔄 Time slot normalization:`, {
-            original: reservation.timeSlot,
-            normalized: normalizedSlot
-          });
-          
-          return normalizedSlot;
-        })
-        .filter(slot => slot); // Remove any null/undefined slots
-      
-      console.log('🚫 Final unavailable slots:', unavailable);
-      console.log('📋 Available time slots for comparison:', timeSlots.map(slot => slot.value));
-      
-      // Enhanced matching with fuzzy logic
-      const matchedSlots = [];
-      unavailable.forEach(unavailableSlot => {
-        // Exact match first
-        let match = timeSlots.find(slot => slot.value === unavailableSlot);
-        
-        if (match) {
-          console.log(`🔍 Exact match found: "${unavailableSlot}" ✅`);
-          matchedSlots.push(unavailableSlot);
+
+        const data = await response.json();
+
+        // Handle both paginated and non-paginated responses
+        let reservations = [];
+        if (data.success && Array.isArray(data.data)) {
+          reservations = data.data;
+        } else if (Array.isArray(data)) {
+          reservations = data;
         } else {
-          // Try fuzzy matching
-          const fuzzyMatch = timeSlots.find(slot => {
-            const slotNormalized = slot.value.toLowerCase().replace(/\s/g, '');
-            const unavailableNormalized = unavailableSlot.toLowerCase().replace(/\s/g, '');
-            return slotNormalized === unavailableNormalized;
-          });
-          
-          if (fuzzyMatch) {
-            console.log(`🔍 Fuzzy match found: "${unavailableSlot}" → "${fuzzyMatch.value}" ✅`);
-            matchedSlots.push(fuzzyMatch.value); // Use the correct format
-          } else {
-            console.log(`🔍 No match found for: "${unavailableSlot}" ❌`);
-            
-            // Show potential close matches for debugging
-            const closeMatches = timeSlots.filter(slot => {
-              const slotLower = slot.value.toLowerCase();
-              const unavailableLower = unavailableSlot.toLowerCase();
-              return slotLower.includes(unavailableLower.substring(0, 5)) || 
-                     unavailableLower.includes(slotLower.substring(0, 5));
-            });
-            
-            if (closeMatches.length > 0) {
-              console.log(`🔍 Close matches:`, closeMatches.map(m => m.value));
-            }
-          }
+          setUnavailableSlots([]);
+          return;
         }
-      });
-      
-      console.log('✅ Final matched unavailable slots:', matchedSlots);
-      setUnavailableSlots(matchedSlots);
-      
-    } catch (error) {
-      console.error('❌ Error fetching unavailable slots:', error);
-      setUnavailableSlots([]);
-    }
-  };
+
+        // Extract time slots from non-cancelled reservations
+        const bookedSlots = reservations
+          .filter(reservation => reservation.status !== 'cancelled')
+          .map(reservation => reservation.timeSlot)
+          .filter(slot => slot);
+
+        setUnavailableSlots(bookedSlots);
+
+      } catch (error) {
+        console.error('❌ Error fetching unavailable slots:', error);
+        setUnavailableSlots([]);
+      }
+    }, [])
 
   // Update unavailable slots when date changes
-  const handleDateChange = (newDate) => {
-    setBookingDetails({...bookingDetails, bookingDate: newDate, timeSlot: ''});
+  const handleDateChange = useCallback((newDate) => {
+    setBookingDetails(prev => ({...prev, bookingDate: newDate, timeSlot: ''}));
     if (selectedTable) {
       fetchUnavailableSlots(selectedTable._id, newDate);
     }
-  };
+  }, [selectedTable, fetchUnavailableSlots]);
 
   // Handle date picker change
   const onDateChange = (event, selectedDate) => {
@@ -484,7 +320,8 @@ const TableBooking = ({ route }) => {
       );
       
       if (checkResponse.ok) {
-        const existingReservations = await checkResponse.json();
+        const responseData = await checkResponse.json();
+        const existingReservations = responseData.data || [];
         const conflictingReservation = existingReservations.find(
           reservation => 
             reservation.timeSlot === bookingDetails.timeSlot && 
@@ -776,42 +613,44 @@ const TableBooking = ({ route }) => {
     }
   };
 
-  const renderTableItem = ({ item }) => {
-    // Tables are always selectable - availability is determined by time slots
-    const isSelectable = true;
+  const renderTableItem = useCallback(({ item }) => {
+    // Check if table has reservations for the current date
+    const reservations = tableReservations[item._id] || [];
+    const bookedSlots = reservations.map(res => res.timeSlot);
+    const isFullyBooked = bookedSlots.length >= timeSlots.length;
     
     return (
       <TouchableOpacity
         style={[
           styles.tableCard,
-          colorScheme === 'dark' ? styles.tableCardDark : styles.tableCardLight
+          colorScheme === 'dark' ? styles.tableCardDark : styles.tableCardLight,
+          isFullyBooked && styles.tableCardFullyBooked // Only style for fully booked
         ]}
         onPress={() => handleTableSelect(item)}
+        disabled={isFullyBooked}
       >
         <View style={styles.tableHeader}>
           <View style={styles.tableNumberContainer}>
-            <Icon name="table-restaurant" size={24} color="#800000" />
-            <Text style={[styles.tableNumber, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+            <Icon name="table-restaurant" size={24} color={isFullyBooked ? '#999' : '#800000'} />
+            <Text style={[
+              styles.tableNumber, 
+              colorScheme === 'dark' ? styles.textDark : styles.textLight,
+              isFullyBooked && styles.disabledText
+            ]}>
               Table {item.number}
             </Text>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: '#28a745' }]}>
-            <Text style={styles.statusText}>Available</Text>
           </View>
         </View>
         
         <View style={styles.tableDetails}>
-          <View style={styles.tableInfo}>
-            <Icon name="people" size={16} color="#666" />
-            <Text style={[styles.capacityText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-              Capacity: {item.capacity || 4} people
-            </Text>
-          </View>
-          
           {item.location && (
             <View style={styles.tableInfo}>
-              <Icon name="location-on" size={16} color="#666" />
-              <Text style={[styles.locationText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+              <Icon name="location-on" size={16} color={isFullyBooked ? '#999' : '#666'} />
+              <Text style={[
+                styles.locationText, 
+                colorScheme === 'dark' ? styles.textDark : styles.textLight,
+                isFullyBooked && styles.disabledText
+              ]}>
                 {item.location}
               </Text>
             </View>
@@ -819,12 +658,14 @@ const TableBooking = ({ route }) => {
         </View>
         
         <View style={styles.bookButton}>
-          <Text style={styles.bookButtonText}>Tap to Book</Text>
-          <Icon name="arrow-forward" size={16} color="#800000" />
+          <Text style={[styles.bookButtonText, isFullyBooked && styles.disabledText]}>
+            {isFullyBooked ? 'Not Available' : 'Tap to Book'}
+          </Text>
+          <Icon name="arrow-forward" size={16} color={isFullyBooked ? '#999' : '#800000'} />
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [tableReservations, colorScheme, handleTableSelect]);
 
   return (
     <SafeAreaView style={[styles.container, colorScheme === 'dark' ? styles.containerDark : styles.containerLight]}>
@@ -875,32 +716,10 @@ const TableBooking = ({ route }) => {
         <Icon name="info" size={20} color="#800000" />
         <Text style={[styles.infoBannerText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
           {selectedBranchId ? 
-            'All tables are available. Select a table to see available time slots.' :
+            'Select a table to see available time slots.' :
             'Please select a branch first to view available tables.'
           }
         </Text>
-      </View>
-
-      {/* Stats */}
-      <View style={[styles.statsContainer, colorScheme === 'dark' ? styles.statsContainerDark : styles.statsContainerLight]}>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{tables.length}</Text>
-          <Text style={[styles.statLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Total Tables</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={[styles.statNumber, { color: '#28a745' }]}>
-            {tables.length}
-          </Text>
-          <Text style={[styles.statLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Available</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={[styles.statNumber, { color: '#ffc107' }]}>
-            {unavailableSlots.length}
-          </Text>
-          <Text style={[styles.statLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Booked Slots</Text>
-        </View>
       </View>
 
       {/* Tables List */}
@@ -920,6 +739,11 @@ const TableBooking = ({ route }) => {
           showsVerticalScrollIndicator={false}
           numColumns={2}
           columnWrapperStyle={styles.tableRow}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          updateCellsBatchingPeriod={50}
+          initialNumToRender={10}
+          windowSize={5}
         />
       )}
 
@@ -1005,7 +829,7 @@ const TableBooking = ({ route }) => {
                 <View style={styles.inputGroup}>
                   <Text style={[styles.inputLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Time Slot *</Text>
                   <Text style={[styles.instructionText, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-                    Scroll horizontally to see all time slots. Red slots are already booked.
+                    Scroll horizontally to see all time slots. Red bordered slots are already booked.
                   </Text>
                   <View style={[styles.pickerContainer, colorScheme === 'dark' ? styles.textInputDark : styles.textInputLight]}>
                     <ScrollView 
@@ -1018,11 +842,11 @@ const TableBooking = ({ route }) => {
                         const isUnavailable = unavailableSlots.includes(slot.value);
                         const isSelected = bookingDetails.timeSlot === slot.value;
                         
-                        // Debug logging for the first few slots
-                        if (index < 3) {
-                          console.log(`🎯 Slot ${index}: "${slot.value}" - unavailable: ${isUnavailable}, selected: ${isSelected}`);
-                          console.log(`🎯 Checking against unavailable slots:`, unavailableSlots);
-                        }
+                        // Enhanced debug logging
+                        console.log(`🎯 Slot ${index}: "${slot.value}"`);
+                        console.log(`   - isUnavailable: ${isUnavailable}`);
+                        console.log(`   - isSelected: ${isSelected}`);
+                        console.log(`   - unavailableSlots array:`, unavailableSlots);
                         
                         return (
                           <TouchableOpacity
@@ -1031,7 +855,7 @@ const TableBooking = ({ route }) => {
                               styles.timeSlotButton,
                               // Apply base theme style first
                               !isSelected && !isUnavailable && (colorScheme === 'dark' ? styles.timeSlotButtonDark : styles.timeSlotButtonLight),
-                              // Apply unavailable style if needed
+                              // Apply unavailable style if needed - THIS SHOULD ADD RED BORDER
                               isUnavailable && !isSelected && styles.unavailableTimeSlot,
                               // Apply selected style last to ensure it overrides everything
                               isSelected && styles.selectedTimeSlot,
@@ -1039,6 +863,8 @@ const TableBooking = ({ route }) => {
                             onPress={() => {
                               if (!isUnavailable) {
                                 setBookingDetails({...bookingDetails, timeSlot: slot.value});
+                              } else {
+                                console.log('⚠️ Attempted to select unavailable slot:', slot.value);
                               }
                             }}
                             disabled={isUnavailable}
@@ -1198,97 +1024,123 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   containerLight: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f7fa',
   },
   containerDark: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#121212',
   },
   textLight: {
-    color: '#333',
+    color: '#1f2937',
   },
   textDark: {
-    color: '#e5e5e5',
+    color: '#f3f4f6',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 18,
     borderBottomWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
   headerLight: {
     backgroundColor: '#fff',
     borderBottomColor: '#e5e7eb',
   },
   headerDark: {
-    backgroundColor: '#2a2a2a',
-    borderBottomColor: '#444',
+    backgroundColor: '#1f1f1f',
+    borderBottomColor: '#374151',
   },
   headerText: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
     flex: 1,
     textAlign: 'center',
+    letterSpacing: 0.5,
   },
   headerIcon: {
-    width: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    backgroundColor: 'rgba(128, 0, 0, 0.08)',
   },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    marginHorizontal: 15,
-    marginTop: 10,
-    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 12,
     borderWidth: 1,
+    shadowColor: '#800000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   infoBannerLight: {
-    backgroundColor: '#fff7ed',
-    borderColor: '#fed7aa',
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
   },
   infoBannerDark: {
-    backgroundColor: '#3a2a1a',
-    borderColor: '#92400e',
+    backgroundColor: '#451a03',
+    borderColor: '#78350f',
   },
   infoBannerText: {
-    fontSize: 14,
-    marginLeft: 8,
+    fontSize: 13,
+    marginLeft: 10,
     flex: 1,
+    lineHeight: 18,
   },
   statsContainer: {
     flexDirection: 'row',
     paddingVertical: 20,
-    paddingHorizontal: 15,
-    marginHorizontal: 15,
-    marginTop: 10,
-    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   statsContainerLight: {
     backgroundColor: '#fff',
   },
   statsContainerDark: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: '#1f1f1f',
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '900',
     color: '#800000',
+    letterSpacing: -0.5,
   },
   statLabel: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 11,
+    marginTop: 6,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    opacity: 0.7,
   },
   statDivider: {
     width: 1,
-    height: 40,
-    backgroundColor: '#ddd',
-    marginHorizontal: 15,
+    height: 50,
+    backgroundColor: '#e5e7eb',
+    marginHorizontal: 16,
   },
   loadingContainer: {
     flex: 1,
@@ -1296,279 +1148,374 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 12,
     fontSize: 16,
+    fontWeight: '500',
   },
   tablesList: {
-    padding: 15,
+    padding: 16,
   },
   tableRow: {
     justifyContent: 'space-between',
   },
   tableCard: {
     flex: 0.48,
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
-    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    overflow: 'hidden', // Prevent content from exceeding card bounds
   },
   tableCardLight: {
     backgroundColor: '#fff',
     borderColor: '#e5e7eb',
   },
   tableCardDark: {
-    backgroundColor: '#2a2a2a',
-    borderColor: '#444',
+    backgroundColor: '#1f1f1f',
+    borderColor: '#374151',
   },
   tableCardDisabled: {
-    opacity: 0.6,
+    opacity: 1,
+  },
+  tableCardBooked: {
+    borderColor: '#ff6b6b',
+    borderWidth: 2,
+  },
+  tableCardFullyBooked: {
+    borderColor: '#dc3545',
+    borderWidth: 2,
+    opacity: 0.7,
+  },
+  bookingBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  partiallyBookedBadge: {
+    backgroundColor: '#fff3cd',
+  },
+  fullyBookedBadge: {
+    backgroundColor: '#f8d7da',
+  },
+  bookingBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#721c24',
+  },
+  disabledText: {
+    color: '#999',
   },
   tableHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   tableNumberContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(128, 0, 0, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 8,
   },
   tableNumber: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '800',
+    marginLeft: 6,
+    letterSpacing: 0.3,
+    flexShrink: 1, // Allow text to shrink if needed
   },
   statusBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    shadowColor: '#28a745',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 2,
+    flexShrink: 0, // Prevent badge from shrinking
   },
   statusText: {
     color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   tableDetails: {
-    marginBottom: 10,
+    marginBottom: 12,
+    paddingVertical: 8,
   },
   tableInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 5,
+    marginBottom: 8,
+    paddingVertical: 4,
+    flexWrap: 'wrap', // Allow wrapping if needed
   },
   capacityText: {
-    fontSize: 14,
+    fontSize: 12,
     marginLeft: 8,
+    fontWeight: '600',
+    flexShrink: 1, // Allow text to shrink
   },
   locationText: {
-    fontSize: 14,
+    fontSize: 12,
     marginLeft: 8,
+    fontWeight: '500',
+    flexShrink: 1, // Allow text to shrink
   },
   bookButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(128, 0, 0, 0.08)',
+    borderRadius: 10,
+    marginTop: 4,
   },
   bookButtonText: {
     color: '#800000',
     fontSize: 14,
-    fontWeight: '600',
-    marginRight: 5,
+    fontWeight: '700',
+    marginRight: 6,
+    letterSpacing: 0.3,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContainer: {
-    width: '90%',
-    maxHeight: '80%',
-    borderRadius: 15,
-    padding: 20,
+    width: '92%',
+    maxHeight: '85%',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
   },
   modalContainerLight: {
     backgroundColor: '#fff',
   },
   modalContainerDark: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: '#1f1f1f',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   formContainer: {
     marginBottom: 20,
   },
   inputGroup: {
-    marginBottom: 15,
+    marginBottom: 18,
   },
   inputLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
+    fontWeight: '700',
+    marginBottom: 10,
+    letterSpacing: 0.3,
   },
   instructionText: {
     fontSize: 12,
-    opacity: 0.7,
-    marginBottom: 8,
+    opacity: 0.65,
+    marginBottom: 10,
     fontStyle: 'italic',
+    lineHeight: 16,
   },
   textInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    fontWeight: '500',
   },
   textInputLight: {
-    backgroundColor: '#fff',
-    borderColor: '#e5e7eb',
-    color: '#333',
+    backgroundColor: '#f9fafb',
+    borderColor: '#d1d5db',
+    borderWidth: 1.5,
+    color: '#1f2937',
   },
   textInputDark: {
-    backgroundColor: '#3a3a3a',
-    borderColor: '#555',
-    color: '#e5e5e5',
+    backgroundColor: '#2a2a2a',
+    borderColor: '#4b5563',
+    color: '#f3f4f6',
   },
   textArea: {
-    height: 80,
+    height: 90,
     textAlignVertical: 'top',
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 8,
   },
   cancelButton: {
     flex: 0.45,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 2,
   },
   cancelButtonLight: {
     backgroundColor: '#fff',
     borderColor: '#800000',
   },
   cancelButtonDark: {
-    backgroundColor: '#3a3a3a',
+    backgroundColor: '#2a2a2a',
     borderColor: '#800000',
   },
   cancelButtonText: {
     color: '#800000',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   bookConfirmButton: {
     flex: 0.45,
     backgroundColor: '#800000',
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: 'center',
+    shadowColor: '#800000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   bookConfirmButtonDisabled: {
-    opacity: 0.6,
+    opacity: 1,
   },
   bookConfirmButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   pickerContainer: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    height: 80,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    height: 90,
   },
   timeSlotScrollView: {
-    height: 60,
+    height: 70,
   },
   timeSlotContainer: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    paddingRight: 20, // Extra padding at the end to show there's more content
+    paddingRight: 24,
   },
   timeSlotButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 12,
     marginRight: 12,
-    borderWidth: 1,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 140,
-    height: 50,
+    minWidth: 150,
+    height: 60,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   timeSlotButtonLight: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f9fafb',
     borderColor: '#e5e7eb',
   },
   timeSlotButtonDark: {
-    backgroundColor: '#4a4a4a',
-    borderColor: '#666',
+    backgroundColor: '#2a2a2a',
+    borderColor: '#4b5563',
   },
   selectedTimeSlot: {
     backgroundColor: '#800000',
     borderColor: '#800000',
     shadowColor: '#800000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-    transform: [{ scale: 1.05 }], // Slightly larger when selected
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+    transform: [{ scale: 1.05 }],
   },
   unavailableTimeSlot: {
-    backgroundColor: '#f5f5f5',
-    borderColor: '#d6d6d6',
-    opacity: 0.6,
+    backgroundColor: '#ffe6e6',
+    borderColor: '#dc3545',
+    borderWidth: 2,
+    opacity: 0.8,
   },
   timeSlotText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     textAlign: 'center',
+    letterSpacing: 0.2,
   },
   timeSlotTextDark: {
-    color: '#e5e5e5',
+    color: '#f3f4f6',
   },
   selectedTimeSlotText: {
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '800',
   },
   unavailableTimeSlotText: {
-    color: '#999',
+    color: '#9ca3af',
     textDecorationLine: 'line-through',
   },
   unavailableLabel: {
     fontSize: 10,
-    color: '#dc3545',
-    fontWeight: 'bold',
-    marginTop: 2,
+    color: '#dc2626',
+    fontWeight: '800',
+    marginTop: 3,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   helperText: {
     fontSize: 12,
-    color: '#dc3545',
-    marginTop: 4,
+    color: '#dc2626',
+    marginTop: 6,
     fontStyle: 'italic',
+    fontWeight: '500',
   },
   selectedSlotText: {
-    fontSize: 12,
-    color: '#28a745',
-    marginTop: 4,
-    fontWeight: '600',
+    fontSize: 13,
+    color: '#059669',
+    marginTop: 6,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   datePickerButton: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 15,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     marginBottom: 8,
   },
   datePickerContent: {
@@ -1577,31 +1524,33 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   datePickerText: {
-    fontSize: 16,
+    fontSize: 15,
     flex: 1,
     marginLeft: 12,
+    fontWeight: '600',
   },
   branchSelector: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginHorizontal: 15,
-    marginTop: 10,
-    padding: 15,
-    borderRadius: 12,
-    borderWidth: 1,
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
   branchSelectorLight: {
     backgroundColor: '#fff',
     borderColor: '#e5e7eb',
   },
   branchSelectorDark: {
-    backgroundColor: '#2a2a2a',
-    borderColor: '#444',
+    backgroundColor: '#1f1f1f',
+    borderColor: '#374151',
   },
   branchSelectorLeft: {
     flexDirection: 'row',
@@ -1609,34 +1558,45 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   branchTextContainer: {
-    marginLeft: 12,
+    marginLeft: 14,
     flex: 1,
   },
   branchSelectorLabel: {
-    fontSize: 12,
-    opacity: 0.7,
-    marginBottom: 2,
+    fontSize: 11,
+    opacity: 0.65,
+    marginBottom: 4,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   branchName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   branchAddress: {
-    fontSize: 13,
-    marginTop: 2,
-    opacity: 0.8,
+    fontSize: 12,
+    marginTop: 3,
+    opacity: 0.75,
+    fontWeight: '500',
   },
   branchItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 18,
     paddingHorizontal: 20,
+    borderRadius: 12,
+    marginBottom: 8,
   },
   selectedBranchItem: {
-    backgroundColor: '#fff7ed',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1.5,
+    borderColor: '#fde68a',
   },
   selectedBranchItemDark: {
-    backgroundColor: '#3a3a3a',
+    backgroundColor: '#2a2a2a',
+    borderWidth: 1.5,
+    borderColor: '#78350f',
   },
   branchItemLeft: {
     marginRight: 16,
@@ -1646,16 +1606,20 @@ const styles = StyleSheet.create({
   },
   branchItemName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 4,
+    letterSpacing: 0.2,
   },
   selectedBranchText: {
     color: '#800000',
   },
   branchItemAddress: {
     fontSize: 13,
-    opacity: 0.8,
+    opacity: 0.75,
+    fontWeight: '500',
   },
 });
 
 export default TableBooking;
+
+

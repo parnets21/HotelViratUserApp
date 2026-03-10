@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { launchImageLibrary, launchCamera } from "react-native-image-picker";
 import { API_BASE_URL } from "../config/api";
@@ -65,7 +65,6 @@ const RoomBooking = () => {
     checkOutDate: '',
     checkInTime: '12:00',
     checkOutTime: '11:00',
-    gstOption: 'withGST', // 'withoutGST', 'withGST', 'withIGST'
     guestName: '',
     guestPhone: '',
     guestEmail: '',
@@ -104,13 +103,13 @@ const RoomBooking = () => {
   // Fetch booked time slots for a specific room and date
   const fetchBookedTimeSlots = async (roomId, date) => {
     try {
-      console.log('🔍 Mobile App - Fetching booked slots for room:', roomId, 'date:', date)
-      const response = await fetch(`${API_BASE}/room-booking/slots/${roomId}?date=${date}`);
+      // Use mobile-specific endpoint that excludes checkout dates
+      const response = await fetch(`${API_BASE}/mobile-room-booking/slots/${roomId}?date=${date}`);
       const data = await response.json();
-      console.log('✅ Mobile App - Booked slots response:', data)
-      return data.bookedSlots || [];
+      // API returns 'timeSlots' not 'bookedSlots'
+      return data.timeSlots || data.bookedSlots || [];
     } catch (error) {
-      console.error('❌ Mobile App - Error fetching booked time slots:', error);
+      console.error('Error fetching booked time slots:', error);
       return [];
     }
   };
@@ -257,43 +256,17 @@ const RoomBooking = () => {
     return diffDays > 0 ? diffDays : 0;
   };
 
-  // Calculate price with different GST options
+  // Calculate price (no GST)
   const calculatePrice = () => {
-    if (!selectedRoom) return { baseAmount: 0, cgst: 0, sgst: 0, igst: 0, totalAmount: 0, nights: 0, gstAmount: 0 };
+    if (!selectedRoom) return { baseAmount: 0, totalAmount: 0, nights: 0 };
     
     const nights = calculateNights();
     const baseAmount = selectedRoom.price * nights;
-    
-    let cgst = 0, sgst = 0, igst = 0, gstAmount = 0;
-    
-    if (bookingForm.gstOption === 'withoutGST') {
-      // No GST
-      cgst = sgst = igst = gstAmount = 0;
-    } else if (bookingForm.gstOption === 'withGST') {
-      // Within State: CGST + SGST
-      // Below ₹7500 per night: 12% GST (6% CGST + 6% SGST)
-      // ₹7500 and above per night: 18% GST (9% CGST + 9% SGST)
-      const gstRate = selectedRoom.price >= 7500 ? 0.09 : 0.06;
-      cgst = baseAmount * gstRate;
-      sgst = baseAmount * gstRate;
-      gstAmount = cgst + sgst;
-    } else if (bookingForm.gstOption === 'withIGST') {
-      // Out of State: IGST
-      const gstRate = selectedRoom.price >= 7500 ? 0.18 : 0.12;
-      igst = baseAmount * gstRate;
-      gstAmount = igst;
-    }
-    
-    const totalAmount = baseAmount + gstAmount;
+    const totalAmount = baseAmount;
     
     return {
       nights,
       baseAmount,
-      cgst,
-      sgst,
-      igst,
-      gstAmount,
-      gstPercent: selectedRoom.price >= 7500 ? (bookingForm.gstOption === 'withIGST' ? 18 : 9) : (bookingForm.gstOption === 'withIGST' ? 12 : 6),
       totalAmount,
     };
   };
@@ -373,6 +346,17 @@ const RoomBooking = () => {
     fetchRooms();
   }, []);
 
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 Room Booking screen focused - refreshing data...');
+      fetchRooms();
+      return () => {
+        // Cleanup if needed
+      };
+    }, [])
+  );
+
   const fetchBranches = async () => {
     try {
       const response = await fetch(`${API_BASE}/branch`);
@@ -401,9 +385,15 @@ const RoomBooking = () => {
       const data = await response.json();
       console.log("Rooms fetched:", data);
       if (Array.isArray(data)) {
-        setRooms(data);
-        // Fetch bookings for each room
-        fetchRoomBookings(data);
+        // Sort rooms by room number (101, 102, 103, etc.)
+        const sortedRooms = data.sort((a, b) => {
+          const numA = parseInt(a.roomNumber) || 0;
+          const numB = parseInt(b.roomNumber) || 0;
+          return numA - numB;
+        });
+        setRooms(sortedRooms);
+        // Fetch bookings for each room - await to ensure it completes
+        await fetchRoomBookings(sortedRooms);
       } else {
         console.error("Rooms data is not an array:", data);
         setRooms([]);
@@ -417,11 +407,60 @@ const RoomBooking = () => {
   };
 
   const fetchRoomBookings = async (roomsList) => {
-    // With time slot system, we don't need to fetch active bookings for room cards
-    // Room availability is now determined by individual time slots when booking
-    // This prevents rooms from showing as "occupied" when they have some bookings
-    // but are still available for other time slots
-    setRoomBookings({});
+    try {
+      console.log('🔍 Fetching all active bookings...');
+      const response = await fetch(`${API_BASE}/room-booking`);
+      
+      if (!response.ok) {
+        console.error('Failed to fetch bookings:', response.status);
+        setRoomBookings({});
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('📋 All bookings response:', data);
+      
+      const bookings = data.success ? data.bookings : (Array.isArray(data) ? data : []);
+      
+      // Create a map of roomId -> active booking
+      const bookingsMap = {};
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      bookings.forEach(booking => {
+        // Only include active bookings (confirmed, checked-in, pending)
+        // Exclude cancelled and checked-out bookings
+        if (['confirmed', 'checked-in', 'pending'].includes(booking.status)) {
+          const checkInDate = new Date(booking.checkInDate);
+          const checkOutDate = new Date(booking.checkOutDate);
+          checkInDate.setHours(0, 0, 0, 0);
+          checkOutDate.setHours(0, 0, 0, 0);
+          
+          // Room is occupied from check-in date until (but NOT including) check-out date
+          // So if checkout is today, room is available today
+          // Only show as booked if checkout date is in the future (tomorrow or later)
+          if (checkOutDate > today) {
+            const roomId = booking.roomId?._id || booking.roomId;
+            if (roomId) {
+              // Store the booking for this room
+              if (!bookingsMap[roomId]) {
+                bookingsMap[roomId] = booking;
+                console.log('  🔒 Room', roomId, 'booked until', checkOutDate.toISOString().split('T')[0]);
+              }
+            }
+          } else {
+            console.log('  ✅ Booking expired (checkout date passed):', booking._id);
+          }
+        }
+      });
+      
+      console.log('✅ Active bookings map:', bookingsMap);
+      setRoomBookings(bookingsMap);
+      
+    } catch (error) {
+      console.error('❌ Error fetching room bookings:', error);
+      setRoomBookings({});
+    }
   };
 
   useEffect(() => {
@@ -630,8 +669,8 @@ const RoomBooking = () => {
       return;
     }
 
-    if (checkOutDate <= checkInDate) {
-      Alert.alert("Error", "Check-out date must be after check-in date");
+    if (checkOutDate < checkInDate) {
+      Alert.alert("Error", "Check-out date cannot be before check-in date");
       return;
     }
 
@@ -688,13 +727,9 @@ const RoomBooking = () => {
         checkOutDate: bookingForm.checkOutDate,
         checkInTime: bookingForm.checkInTime,
         checkOutTime: bookingForm.checkOutTime,
-        gstOption: bookingForm.gstOption,
         nights: priceDetails.nights,
         baseAmount: priceDetails.baseAmount,
-        cgst: priceDetails.cgst,
-        sgst: priceDetails.sgst,
-        igst: priceDetails.igst,
-        gstAmount: priceDetails.gstAmount,
+        totalAmount: priceDetails.totalAmount,
         totalPrice: priceDetails.totalAmount,
       };
 
@@ -711,10 +746,29 @@ const RoomBooking = () => {
       const data = await response.json();
 
       if (response.ok) {
+        // Reset booking form
+        setBookingForm({
+          checkInDate: '',
+          checkOutDate: '',
+          checkInTime: '12:00',
+          checkOutTime: '11:00',
+          guestName: '',
+          guestPhone: '',
+          guestEmail: '',
+          guestGstNumber: '',
+          panCard: null,
+          aadhaarCard: null,
+        });
+        
+        // Refresh rooms and bookings immediately
+        console.log('🔄 Refreshing rooms after booking...');
+        await fetchRooms();
+        
         setBookingLoading(false);
         setShowBookingModal(false);
+        
         Alert.alert("Success", `Booking confirmed for ${getRoomDisplayName(selectedRoom)}!`);
-        fetchRooms(); // Refresh rooms
+        
       } else {
         setBookingLoading(false);
         Alert.alert("Error", data.message || "Booking failed. Please try again.");
@@ -735,9 +789,10 @@ const RoomBooking = () => {
 
   const RoomCard = ({ room }) => {
     const booking = roomBookings[room._id];
-    // Room is available if it's marked as available in the system
-    // Individual time slots will be checked during booking
-    const isAvailable = room.isAvailable;
+    // Check if room is available for booking (system availability)
+    const isSystemAvailable = room.isAvailable;
+    // Check if room has current booking
+    const hasActiveBooking = !!booking;
     const [imageLoading, setImageLoading] = useState(true);
     const [imageError, setImageError] = useState(false);
 
@@ -773,7 +828,12 @@ const RoomBooking = () => {
             </View>
           )}
         </View>
-        {!isAvailable && (
+        {hasActiveBooking && (
+          <View style={styles.bookedBadge}>
+            <Text style={styles.bookedBadgeText}>BOOKED TODAY</Text>
+          </View>
+        )}
+        {!isSystemAvailable && !hasActiveBooking && (
           <View style={styles.bookedBadge}>
             <Text style={styles.bookedBadgeText}>UNAVAILABLE</Text>
           </View>
@@ -794,18 +854,30 @@ const RoomBooking = () => {
             )}
           </View>
           
-          {/* With time slot system, rooms are available for booking at different times */}
-          {/* Individual booking details are not shown on room cards */}
+          {/* Show booking details if room is booked */}
+          {booking && (
+            <View style={styles.bookingDetailsCard}>
+              <Text style={styles.bookingDetailsTitle}>🔒 Currently Booked</Text>
+              <Text style={styles.bookingDetailsText}>
+                Check-out: {formatDate(booking.checkOutDate)}
+              </Text>
+              <Text style={styles.bookingDetailsText}>
+                Status: {booking.status?.toUpperCase()}
+              </Text>
+              <Text style={styles.bookingDetailsHint}>
+                💡 You can book for future dates
+              </Text>
+            </View>
+          )}
 
           <View style={styles.roomFooter}>
             <Text style={styles.price}>₹{room.price}</Text>
             <TouchableOpacity
-              style={[styles.bookButtonSmall, !isAvailable && styles.bookButtonDisabled]}
-              disabled={!isAvailable}
+              style={styles.bookButtonSmall}
               onPress={() => handleBookRoom(room)}
             >
               <Text style={styles.bookButtonSmallText}>
-                {!isAvailable ? "Unavailable" : "Book"}
+                {hasActiveBooking ? "Book Later" : "Book Now"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -922,14 +994,30 @@ const RoomBooking = () => {
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Status:</Text>
-                    <Text style={[styles.detailValue, { color: selectedRoom.isAvailable ? "#059669" : "#dc2626" }]}>
-                      {selectedRoom.isAvailable ? "Available" : "Not Available"}
+                    <Text style={[styles.detailValue, { color: (selectedRoom.isAvailable && !roomBookings[selectedRoom._id]) ? "#059669" : "#dc2626" }]}>
+                      {roomBookings[selectedRoom._id] ? "Currently Booked" : (selectedRoom.isAvailable ? "Available" : "Not Available")}
                     </Text>
                   </View>
                 </View>
 
-                {/* With time slot system, rooms can be booked for different time periods */}
-                {/* Specific booking conflicts will be shown during the booking process */}
+                {/* Show booking details if room is currently booked */}
+                {roomBookings[selectedRoom._id] && (
+                  <View style={styles.bookingDetailsCard}>
+                    <Text style={styles.bookingDetailsTitle}>🔒 Currently Booked</Text>
+                    <Text style={styles.bookingDetailsText}>
+                      Check-in: {formatDate(roomBookings[selectedRoom._id].checkInDate)}
+                    </Text>
+                    <Text style={styles.bookingDetailsText}>
+                      Check-out: {formatDate(roomBookings[selectedRoom._id].checkOutDate)}
+                    </Text>
+                    <Text style={styles.bookingDetailsText}>
+                      Status: {roomBookings[selectedRoom._id].status?.toUpperCase()}
+                    </Text>
+                    <Text style={styles.bookingDetailsHint}>
+                      💡 You can still book this room for future dates
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.priceSection}>
                   <View>
@@ -937,12 +1025,11 @@ const RoomBooking = () => {
                     <Text style={styles.priceLarge}>₹{selectedRoom.price}</Text>
                   </View>
                   <TouchableOpacity
-                    style={[styles.bookButton, !selectedRoom.isAvailable && styles.bookButtonDisabled]}
-                    disabled={!selectedRoom.isAvailable}
+                    style={styles.bookButton}
                     onPress={() => handleBookRoom(selectedRoom)}
                   >
                     <Text style={styles.bookButtonText}>
-                      {!selectedRoom.isAvailable ? "Unavailable" : "Book Now"}
+                      {roomBookings[selectedRoom._id] ? "Book for Later" : "Book Now"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -962,41 +1049,6 @@ const RoomBooking = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Room Booking</Text>
       </View>
-
-      {/* Branch Filter */}
-      {branches.length > 0 ? (
-        <View style={styles.branchFilterContainer}>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false} 
-            contentContainerStyle={styles.branchFilterContent}
-          >
-            <TouchableOpacity
-              style={[styles.branchChip, !selectedBranch && styles.branchChipActive]}
-              onPress={() => setSelectedBranch(null)}
-            >
-              <Text style={[styles.branchChipText, !selectedBranch && styles.branchChipTextActive]}>All</Text>
-            </TouchableOpacity>
-            {branches.map((branch) => (
-              <TouchableOpacity
-                key={branch._id}
-                style={[styles.branchChip, selectedBranch === branch._id && styles.branchChipActive]}
-                onPress={() => setSelectedBranch(branch._id)}
-              >
-                <Text style={[styles.branchChipText, selectedBranch === branch._id && styles.branchChipTextActive]}>
-                  {branch.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      ) : (
-        <View style={styles.branchFilterContainer}>
-          <Text style={[styles.branchChipText, { paddingHorizontal: 20 }]}>
-            {loading ? "Loading branches..." : "No branches available"}
-          </Text>
-        </View>
-      )}
 
       {/* Rooms List */}
       {loading ? (
@@ -1206,54 +1258,6 @@ const RoomBooking = () => {
                     </View>
                   </View>
 
-                  {/* GST Options */}
-                  <View style={styles.formSection}>
-                    <Text style={styles.formSectionTitle}>GST Option</Text>
-                    
-                    <TouchableOpacity 
-                      style={[styles.gstOption, bookingForm.gstOption === 'withoutGST' && styles.gstOptionSelected]}
-                      onPress={() => setBookingForm({...bookingForm, gstOption: 'withoutGST'})}
-                    >
-                      <View style={styles.radioButton}>
-                        {bookingForm.gstOption === 'withoutGST' && <View style={styles.radioButtonSelected} />}
-                      </View>
-                      <View style={styles.gstOptionContent}>
-                        <Text style={[styles.gstOptionTitle, isDark ? styles.textDark : styles.textLight]}>Without GST</Text>
-                        <Text style={styles.gstOptionSubtitle}>Basic price only</Text>
-                      </View>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={[styles.gstOption, bookingForm.gstOption === 'withGST' && styles.gstOptionSelected]}
-                      onPress={() => setBookingForm({...bookingForm, gstOption: 'withGST'})}
-                    >
-                      <View style={styles.radioButton}>
-                        {bookingForm.gstOption === 'withGST' && <View style={styles.radioButtonSelected} />}
-                      </View>
-                      <View style={styles.gstOptionContent}>
-                        <Text style={[styles.gstOptionTitle, isDark ? styles.textDark : styles.textLight]}>With GST (Within State)</Text>
-                        <Text style={styles.gstOptionSubtitle}>
-                          CGST {selectedRoom?.price >= 7500 ? '9%' : '6%'} + SGST {selectedRoom?.price >= 7500 ? '9%' : '6%'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={[styles.gstOption, bookingForm.gstOption === 'withIGST' && styles.gstOptionSelected]}
-                      onPress={() => setBookingForm({...bookingForm, gstOption: 'withIGST'})}
-                    >
-                      <View style={styles.radioButton}>
-                        {bookingForm.gstOption === 'withIGST' && <View style={styles.radioButtonSelected} />}
-                      </View>
-                      <View style={styles.gstOptionContent}>
-                        <Text style={[styles.gstOptionTitle, isDark ? styles.textDark : styles.textLight]}>With IGST (Out of State)</Text>
-                        <Text style={styles.gstOptionSubtitle}>
-                          IGST {selectedRoom?.price >= 7500 ? '18%' : '12%'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-
                   {/* Price Breakdown */}
                   {bookingForm.checkInDate && bookingForm.checkOutDate && (
                     <View style={styles.priceBreakdown}>
@@ -1269,34 +1273,6 @@ const RoomBooking = () => {
                               </Text>
                               <Text style={styles.priceValue}>₹{priceDetails.baseAmount.toFixed(2)}</Text>
                             </View>
-                            
-                            {bookingForm.gstOption === 'withGST' && (
-                              <>
-                                <View style={styles.priceRow}>
-                                  <Text style={styles.priceLabel}>CGST ({priceDetails.gstPercent}%)</Text>
-                                  <Text style={styles.priceValue}>₹{priceDetails.cgst.toFixed(2)}</Text>
-                                </View>
-                                
-                                <View style={styles.priceRow}>
-                                  <Text style={styles.priceLabel}>SGST ({priceDetails.gstPercent}%)</Text>
-                                  <Text style={styles.priceValue}>₹{priceDetails.sgst.toFixed(2)}</Text>
-                                </View>
-                              </>
-                            )}
-                            
-                            {bookingForm.gstOption === 'withIGST' && (
-                              <View style={styles.priceRow}>
-                                <Text style={styles.priceLabel}>IGST ({priceDetails.gstPercent}%)</Text>
-                                <Text style={styles.priceValue}>₹{priceDetails.igst.toFixed(2)}</Text>
-                              </View>
-                            )}
-                            
-                            {bookingForm.gstOption !== 'withoutGST' && (
-                              <View style={styles.priceRow}>
-                                <Text style={styles.priceLabel}>Total GST</Text>
-                                <Text style={styles.priceValue}>₹{priceDetails.gstAmount.toFixed(2)}</Text>
-                              </View>
-                            )}
                             
                             <View style={styles.priceDivider} />
                             
@@ -1406,7 +1382,6 @@ const RoomBooking = () => {
                   const hasBookings = hasBookingsOnDate(day);
                   const fullyBooked = isFullyBooked(day);
                   const isSelectable = isDateSelectable(day);
-                  const isAvailable = isSelectable && !hasBookings;
                   
                   days.push(
                     <TouchableOpacity
@@ -1426,14 +1401,9 @@ const RoomBooking = () => {
                       ]}>
                         {day}
                       </Text>
-                      {isAvailable && (
-                        <View style={styles.availableIndicator} />
-                      )}
-                      {hasBookings && !fullyBooked && (
-                        <View style={styles.partialBookingIndicator} />
-                      )}
-                      {fullyBooked && !isPast && (
-                        <View style={styles.fullBookingIndicator} />
+                      {/* Show red dot for any date with bookings */}
+                      {hasBookings && (
+                        <View style={fullyBooked ? styles.fullBookingIndicator : styles.partialBookingIndicator} />
                       )}
                     </TouchableOpacity>
                   );
@@ -1970,6 +1940,33 @@ const getStyles = (isDark) =>
       color: isDark ? "#ccc" : "#666",
       marginTop: 2,
     },
+    bookingDetailsCard: {
+      backgroundColor: isDark ? "#2d1f1f" : "#fee2e2",
+      borderRadius: 8,
+      padding: 16,
+      marginVertical: 12,
+      borderLeftWidth: 4,
+      borderLeftColor: "#dc2626",
+    },
+    bookingDetailsTitle: {
+      fontSize: 16,
+      fontWeight: "bold",
+      color: isDark ? "#fca5a5" : "#991b1b",
+      marginBottom: 8,
+    },
+    bookingDetailsText: {
+      fontSize: 14,
+      color: isDark ? "#fecaca" : "#7f1d1d",
+      marginTop: 4,
+      lineHeight: 20,
+    },
+    bookingDetailsHint: {
+      fontSize: 13,
+      color: isDark ? "#a78bfa" : "#6d28d9",
+      marginTop: 8,
+      fontStyle: "italic",
+      fontWeight: "500",
+    },
     modalCloseBtn: {
       position: "absolute",
       top: 15,
@@ -2409,7 +2406,7 @@ const getStyles = (isDark) =>
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: "#f59e0b",
+      backgroundColor: "#ef4444", // Red for booked dates
     },
     fullBookingIndicator: {
       position: "absolute",
@@ -2418,7 +2415,7 @@ const getStyles = (isDark) =>
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: "#fff",
+      backgroundColor: "#ef4444", // Red for fully booked dates
     },
     // Calendar Legend Styles
     calendarLegend: {

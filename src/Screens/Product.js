@@ -168,13 +168,13 @@ const Product = ({ route }) => {
       
       // Pattern 1: Direct path as stored
       if (cleanPath.startsWith("uploads/")) {
-        urls.push(`http://192.168.1.25:9000/${cleanPath}`);
+        urls.push(`https://hotelvirat.com/${cleanPath}`);
       } else if (cleanPath.startsWith("/uploads/")) {
-        urls.push(`http://192.168.1.25:9000${cleanPath}`);
+        urls.push(`https://hotelvirat.com${cleanPath}`);
       } else {
         // Pattern 2: Assume it's in uploads/menu/
         const filename = cleanPath.split("/").pop();
-        urls.push(`http://192.168.1.25:9000/uploads/menu/${filename}`);
+        urls.push(`https://hotelvirat.com/uploads/menu/${filename}`);
       }
       
       // Pattern 3: URL encode spaces and special characters
@@ -229,12 +229,8 @@ const Product = ({ route }) => {
     };
     
     if (hasError || !currentUrl) {
-      return (
-        <Image
-          source={require("../assets/lemon.jpg")}
-          style={style}
-        />
-      );
+      // No image available - don't show anything
+      return null;
     }
     
     return (
@@ -272,7 +268,7 @@ const Product = ({ route }) => {
     
     // Try multiple URL patterns
     const possibleUrls = [
-      `http://192.168.1.25:9000${cleanPath}`, // Local server
+      `https://hotelvirat.com${cleanPath}`, // Local server
       `https://hotelvirat.com${cleanPath}`, // Production server
     ];
     
@@ -292,7 +288,7 @@ const Product = ({ route }) => {
       console.log(`✅ API connectivity: ${apiResponse.status}`);
       
       // Test image server connectivity
-      const imageResponse = await fetch('http://192.168.1.25:9000/uploads/menu/', { 
+      const imageResponse = await fetch('https://hotelvirat.com/uploads/menu/', { 
         method: 'HEAD',
         timeout: 5000 
       });
@@ -428,35 +424,32 @@ const Product = ({ route }) => {
       
       console.log("📥 Fresh API Response received:", {
         status: response.status,
-        itemCount: Array.isArray(data) ? data.length : 0,
-        firstItemName: Array.isArray(data) && data.length > 0 ? (data[0].name || data[0].itemName) : 'No items'
+        success: data.success,
+        itemCount: data.data ? data.data.length : 0,
+        firstItemName: data.data && data.data.length > 0 ? (data.data[0].name || data.data[0].itemName) : 'No items'
       });
 
+      // Extract the actual menu items array from the response
+      const menuItemsArray = data.data || [];
+
       // Debug: Log sample items with their images
-      if (Array.isArray(data) && data.length > 0) {
-        console.log("🖼️ Sample items from production API:");
-        data.slice(0, 3).forEach((item, index) => {
+      if (menuItemsArray.length > 0) {
+        console.log("🖼️ Sample items from API:");
+        menuItemsArray.slice(0, 3).forEach((item, index) => {
           console.log(`Item ${index + 1}: "${item.name}" → Image: ${item.image}`);
         });
       }
 
       // Debug: Log the RAW API response to see exactly what we're getting
-      if (Array.isArray(data) && data.length > 0) {
-        console.log("🔍 RAW API RESPONSE - First item:", JSON.stringify(data[0], null, 2));
-        
-        // Look for Babycorn Manchurian specifically to check image data
-        const babycornManchurian = data.find(item => (item.name || item.itemName || '').toLowerCase().includes('babycorn manchurian'));
-        if (babycornManchurian) {
-          console.log("🔍 BABYCORN MANCHURIAN RAW DATA:", JSON.stringify(babycornManchurian, null, 2));
-          console.log("🖼️ BABYCORN MANCHURIAN IMAGE FIELD:", babycornManchurian.image);
-        }
+      if (menuItemsArray.length > 0) {
+        console.log("🔍 RAW API RESPONSE - First item:", JSON.stringify(menuItemsArray[0], null, 2));
         
         // Check what fields exist in the first item
-        console.log("🔍 ALL FIELDS in first item:", Object.keys(data[0]));
+        console.log("🔍 ALL FIELDS in first item:", Object.keys(menuItemsArray[0]));
       }
 
-      if (Array.isArray(data)) {
-        const formattedItems = data.map((item) => {
+      if (menuItemsArray.length > 0) {
+        const formattedItems = menuItemsArray.map((item) => {
           // Get price - check both price field and prices object
           let itemPrice = item.price;
           if (!itemPrice && item.prices && typeof item.prices === 'object') {
@@ -643,8 +636,11 @@ const Product = ({ route }) => {
           )
           const data = await response.json()
 
-          if (Array.isArray(data)) {
-            const formattedItems = data.map((item) => {
+          // Extract menu items from response (backend returns {success, data, pagination})
+          const menuItemsArray = data.data || [];
+
+          if (menuItemsArray.length > 0) {
+            const formattedItems = menuItemsArray.map((item) => {
               // Get price - check both price field and prices object
               let itemPrice = item.price;
               if (!itemPrice && item.prices && typeof item.prices === 'object') {
@@ -1243,17 +1239,12 @@ const Product = ({ route }) => {
 
       {/* Quick Lookup Section */}
       <View style={[styles.quickLookupContainer, colorScheme === 'dark' ? styles.quickLookupContainerDark : styles.quickLookupContainerLight]}>
-        <View style={styles.quickLookupHeader}>
-          <Icon name="search" size={20} color="#800000" />
-          <Text style={[styles.quickLookupTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
-            Quick Menu Lookup
-          </Text>
-        </View>
+       
         
         <View style={styles.quickLookupInputContainer}>
           <TextInput
             style={[styles.quickLookupInput, colorScheme === 'dark' ? styles.quickLookupInputDark : styles.quickLookupInputLight]}
-            placeholder="Enter menu item number..."
+            placeholder="Enter menu name here..."
             placeholderTextColor={colorScheme === 'dark' ? '#888' : '#999'}
             value={quickLookupNumber}
             onChangeText={setQuickLookupNumber}

@@ -308,10 +308,12 @@ const handleIncreaseQuantity = async (item) => {
   const renderItem = ({ item }) => {
     return (
       <View style={[styles.cartItem, colorScheme === 'dark' ? styles.cartItemDark : styles.cartItemLight]}>
-        <Image 
-          source={item.image ? { uri: item.image } : require("../assets/lemon.jpg")} 
-          style={styles.itemImage} 
-        />
+        {item.image && (
+          <Image 
+            source={{ uri: item.image }} 
+            style={styles.itemImage} 
+          />
+        )}
         <View style={styles.itemDetails}>
           <View style={styles.itemHeader}>
             <Text style={[styles.itemName, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>{item.name}</Text>

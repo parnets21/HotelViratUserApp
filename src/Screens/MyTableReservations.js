@@ -71,19 +71,28 @@ const MyTableReservations = () => {
 
       console.log('All reservations API response status:', allReservationsResponse.status);
       const allReservationsData = await allReservationsResponse.json();
-      console.log('All reservations count:', allReservationsData.length);
       
-      if (allReservationsData.length > 0) {
-        console.log('Sample reservation:', allReservationsData[0]);
-        console.log('Sample customerId type:', typeof allReservationsData[0].customerId);
-        console.log('Sample customerId value:', allReservationsData[0].customerId);
+      // Handle paginated response format
+      let reservationsArray = [];
+      if (allReservationsData.success && Array.isArray(allReservationsData.data)) {
+        reservationsArray = allReservationsData.data;
+      } else if (Array.isArray(allReservationsData)) {
+        reservationsArray = allReservationsData;
+      }
+      
+      console.log('All reservations count:', reservationsArray.length);
+      
+      if (reservationsArray.length > 0) {
+        console.log('Sample reservation:', reservationsArray[0]);
+        console.log('Sample customerId type:', typeof reservationsArray[0].customerId);
+        console.log('Sample customerId value:', reservationsArray[0].customerId);
       }
 
       // Try to filter reservations by customerId or phone number
       let userReservations = [];
 
       // Method 1: Filter by customerId (if it's a string match)
-      userReservations = allReservationsData.filter(reservation => {
+      userReservations = reservationsArray.filter(reservation => {
         const customerIdMatch = reservation.customerId === userId || 
                               (reservation.customerId && reservation.customerId._id === userId) ||
                               (reservation.customerId && reservation.customerId.toString() === userId);

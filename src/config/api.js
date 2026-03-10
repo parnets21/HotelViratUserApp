@@ -1,13 +1,16 @@
 // API Configuration
-// Use local IP address for API calls but production for images
-export const API_BASE_URL = 'http://192.168.1.25:9000/api/v1/hotel';
+// Use local server for development
+export const API_BASE_URL = 'https://hotelvirat.com/api/v1/hotel';
 
-// Image base URL - use production server since most images are stored there
+// Image base URL - use local server
 export const IMAGE_BASE_URL = 'https://hotelvirat.com';
 
-// Note: Local server only has limited images, production has all images
-
-// Production URLs (commented out for local development):
+// Production URLs (commented out - uncomment to use production server):
 // export const API_BASE_URL = 'https://hotelvirat.com/api/v1/hotel';
 // export const IMAGE_BASE_URL = 'https://hotelvirat.com';
 
+// Note: To use local backend:
+// 1. Uncomment the local URLs above
+// 2. Comment out the production URLs
+// 3. Make sure your backend is running on https://hotelvirat.com
+// 4. Make sure your phone/emulator can reach that IP address
