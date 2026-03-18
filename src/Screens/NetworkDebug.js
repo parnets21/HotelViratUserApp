@@ -70,21 +70,21 @@ const NetworkDebug = () => {
         
         <TouchableOpacity 
           style={styles.button} 
-          onPress={() => testSpecificEndpoint('https://hotelvirat.com/api/v1/hotel/category')}
+          onPress={() => testSpecificEndpoint('http://192.168.1.27:9000/api/v1/hotel/category')}
         >
           <Text style={styles.buttonText}>Test Local Backend</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={styles.button} 
-          onPress={() => testSpecificEndpoint('https://hotelvirat.com/api/v1/hotel/category')}
+          onPress={() => testSpecificEndpoint('http://192.168.1.27:9000/api/v1/hotel/category')}
         >
           <Text style={styles.buttonText}>Test Localhost</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={styles.button} 
-          onPress={() => testSpecificEndpoint('https://hotelvirat.com/api/v1/hotel/category')}
+          onPress={() => testSpecificEndpoint('http://192.168.1.27:9000/api/v1/hotel/category')}
         >
           <Text style={styles.buttonText}>Test Production</Text>
         </TouchableOpacity>

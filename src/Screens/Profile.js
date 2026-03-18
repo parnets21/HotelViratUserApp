@@ -43,7 +43,7 @@ const Profile = () => {
   }, []);
 
   // Base URL for API
-  const BASE_URL = 'https://hotelvirat.com';
+  const BASE_URL = 'http://192.168.1.27:9000';
 
   // Fetch user data
   const fetchUserData = async () => {
@@ -68,7 +68,7 @@ const Profile = () => {
           if (imagePath.startsWith('http')) return imagePath;
           
           // Always use production server for images
-          const prodBaseUrl = "https://hotelvirat.com";
+          const prodBaseUrl = "http://192.168.1.27:9000";
           let cleanPath = imagePath.replace(/\\/g, '/');
           if (cleanPath.startsWith('/')) {
             cleanPath = cleanPath.substring(1);

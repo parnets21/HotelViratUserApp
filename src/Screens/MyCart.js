@@ -65,7 +65,7 @@ const MyCart = () => {
         }, 10000) // 10 second timeout
         
         // Get branch ID for the selected branch index
-        const branchesResponse = await fetch('https://hotelvirat.com/api/v1/hotel/branch', {
+        const branchesResponse = await fetch('http://192.168.1.27:9000/api/v1/hotel/branch', {
           signal: controller.signal
         })
         
@@ -101,7 +101,7 @@ const MyCart = () => {
           cartController.abort()
         }, 8000) // 8 second timeout
         
-        const cartResponse = await fetch(`https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`, {
+        const cartResponse = await fetch(`http://192.168.1.27:9000/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`, {
           signal: cartController.signal
         })
         
@@ -124,7 +124,7 @@ const MyCart = () => {
                 imageUrl = item.image;
               } else {
                 // Use production server where images are actually hosted
-                const prodBaseUrl = "https://hotelvirat.com";
+                const prodBaseUrl = "http://192.168.1.27:9000";
                 let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
                 
                 if (cleanPath.startsWith("/")) {
@@ -177,7 +177,7 @@ const handleIncreaseQuantity = async (item) => {
       addToCart(selectedBranch, item, 1)
       
       // Update server cart
-      await fetch('https://hotelvirat.com/api/v1/hotel/cart/update', {
+      await fetch('http://192.168.1.27:9000/api/v1/hotel/cart/update', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -212,7 +212,7 @@ const handleIncreaseQuantity = async (item) => {
       
       if (item.quantity <= 1) {
         // Remove item completely
-        await fetch(`https://hotelvirat.com/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`, {
+        await fetch(`http://192.168.1.27:9000/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${item.id}`, {
           method: 'DELETE',
         })
         
@@ -220,7 +220,7 @@ const handleIncreaseQuantity = async (item) => {
         setCartItems(prevItems => prevItems.filter(cartItem => cartItem.id !== item.id))
       } else {
         // Update quantity
-        await fetch('https://hotelvirat.com/api/v1/hotel/cart/update', {
+        await fetch('http://192.168.1.27:9000/api/v1/hotel/cart/update', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -259,7 +259,7 @@ const handleIncreaseQuantity = async (item) => {
       removeFromCart(selectedBranch, itemId, item.quantity)
       
       // Remove from server
-      await fetch(`https://hotelvirat.com/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${itemId}`, {
+      await fetch(`http://192.168.1.27:9000/api/v1/hotel/cart/remove?userId=${userId}&branchId=${branchId}&menuItemId=${itemId}`, {
         method: 'DELETE',
       })
       
@@ -289,7 +289,7 @@ const handleIncreaseQuantity = async (item) => {
               clearBranchCart(selectedBranch)
               
               // Clear server cart
-              await fetch(`https://hotelvirat.com/api/v1/hotel/cart/clear?userId=${userId}&branchId=${branchId}`, {
+              await fetch(`http://192.168.1.27:9000/api/v1/hotel/cart/clear?userId=${userId}&branchId=${branchId}`, {
                 method: 'DELETE',
               })
               
@@ -393,7 +393,7 @@ const handleIncreaseQuantity = async (item) => {
                 setError(null)
                 
                 try {
-                  const branchesResponse = await fetch('https://hotelvirat.com/api/v1/hotel/branch')
+                  const branchesResponse = await fetch('http://192.168.1.27:9000/api/v1/hotel/branch')
                   const branchesData = await branchesResponse.json()
                   
                   if (!Array.isArray(branchesData) || branchesData.length === 0) {
@@ -415,7 +415,7 @@ const handleIncreaseQuantity = async (item) => {
                     address: branchesData[selectedBranch].address
                   })
                   
-                  const cartResponse = await fetch(`https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`)
+                  const cartResponse = await fetch(`http://192.168.1.27:9000/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`)
                   const cartData = await cartResponse.json()
                   
                   if (cartData && cartData.items) {
@@ -427,7 +427,7 @@ const handleIncreaseQuantity = async (item) => {
                           imageUrl = item.image;
                         } else {
                           // Use production server where images are actually hosted
-                          const prodBaseUrl = "https://hotelvirat.com";
+                          const prodBaseUrl = "http://192.168.1.27:9000";
                           let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
                           
                           if (cleanPath.startsWith("/")) {

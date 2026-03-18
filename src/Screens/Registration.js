@@ -98,7 +98,7 @@ const Registration = () => {
 
     setIsSendingOtp(true);
     try {
-      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/register/send-otp', {
+      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/user-auth/register/send-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -127,7 +127,7 @@ const Registration = () => {
   const handleResendOtp = async () => {
     setIsSendingOtp(true);
     try {
-      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/register/resend-otp', {
+      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/user-auth/register/resend-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -155,7 +155,7 @@ const Registration = () => {
   const handleRegister = async () => {
     setIsRegistering(true);
     try {
-      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/verify-otp', {
+      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/user-auth/verify-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

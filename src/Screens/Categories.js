@@ -70,13 +70,40 @@ const Categories = ({ route }) => {
         const categoriesData = await categoriesResponse.json();
         console.log("✅ Categories fetched:", categoriesData.length);
         
+        // Filter only restaurant categories
+        const restaurantCategories = categoriesData.filter(cat => 
+          cat.name && cat.name.toLowerCase().includes('restaurant')
+        );
+        
+        console.log("🍽️ Restaurant categories filtered:", restaurantCategories.length);
+        
         // Process categories data
-        const processedCategories = categoriesData.map(category => {
+        const processedCategories = restaurantCategories.map(category => {
           let imageUrl = null;
           if (category.image) {
+            // Check if image is a full URL (http/https)
             if (category.image.startsWith('http')) {
-              imageUrl = category.image;
+              // If it's a production URL, replace with local server URL
+              if (category.image.includes('hotelviratbackend') || 
+                  category.image.includes('render.com') || 
+                  category.image.includes('netlify') ||
+                  category.image.includes('amazonaws.com')) {
+                // Extract the path after 'uploads/'
+                const uploadsIndex = category.image.indexOf('uploads/');
+                if (uploadsIndex !== -1) {
+                  const imagePath = category.image.substring(uploadsIndex);
+                  imageUrl = `${IMAGE_BASE_URL}/${imagePath}`;
+                  console.log("🔄 Converted production URL to local:", imageUrl);
+                } else {
+                  // Use as is if we can't extract path
+                  imageUrl = category.image;
+                }
+              } else {
+                // Already a valid URL (maybe local)
+                imageUrl = category.image;
+              }
             } else {
+              // Relative path
               const cleanImagePath = category.image.startsWith('/') 
                 ? category.image.substring(1) 
                 : category.image;

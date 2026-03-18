@@ -102,7 +102,7 @@ const TableBooking = ({ route }) => {
     try {
       console.log("🌐 Fetching branches for table booking...");
       
-      const response = await fetch('https://hotelvirat.com/api/v1/hotel/branch');
+      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/branch');
       
       if (response.ok) {
         const branchesData = await response.json();
@@ -144,8 +144,8 @@ const TableBooking = ({ route }) => {
       
       // Fetch tables and all reservations for today in parallel
       const [tablesResponse, reservationsResponse] = await Promise.all([
-        fetch(`https://hotelvirat.com/api/v1/hotel/table?branchId=${selectedBranchId}`),
-        fetch(`https://hotelvirat.com/api/v1/hotel/reservation?date=${bookingDetails.bookingDate}&limit=1000`)
+        fetch(`http://192.168.1.27:9000/api/v1/hotel/table?branchId=${selectedBranchId}`),
+        fetch(`http://192.168.1.27:9000/api/v1/hotel/reservation?date=${bookingDetails.bookingDate}&limit=1000`)
       ]);
       
       const tablesData = await tablesResponse.json();
@@ -209,7 +209,7 @@ const TableBooking = ({ route }) => {
         console.log('🔍 Fetching unavailable slots for:', { tableId, date });
 
         const response = await fetch(
-          `https://hotelvirat.com/api/v1/hotel/reservation?tableId=${tableId}&date=${date}&limit=1000`
+          `http://192.168.1.27:9000/api/v1/hotel/reservation?tableId=${tableId}&date=${date}&limit=1000`
         );
 
         if (!response.ok) {
@@ -316,7 +316,7 @@ const TableBooking = ({ route }) => {
       
       // Check if the time slot is already booked for this table on the selected date
       const checkResponse = await fetch(
-        `https://hotelvirat.com/api/v1/hotel/reservation?tableId=${selectedTable._id}&date=${bookingDetails.bookingDate}`
+        `http://192.168.1.27:9000/api/v1/hotel/reservation?tableId=${selectedTable._id}&date=${bookingDetails.bookingDate}`
       );
       
       if (checkResponse.ok) {
@@ -362,13 +362,13 @@ const TableBooking = ({ route }) => {
       }
 
       console.log('📋 Sending booking data:', bookingData);
-      console.log('📋 Backend URL:', 'https://hotelvirat.com/api/v1/hotel/reservation');
+      console.log('📋 Backend URL:', 'http://192.168.1.27:9000/api/v1/hotel/reservation');
       console.log('📋 Request headers:', {
         'Content-Type': 'application/json',
       });
 
       // Create table reservation using the admin panel reservation endpoint
-      let response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
+      let response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -400,7 +400,7 @@ const TableBooking = ({ route }) => {
         
         console.log('🔄 Retry 1: Booking without customer fields:', bookingDataWithoutCustomer);
         
-        response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
+        response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -433,7 +433,7 @@ const TableBooking = ({ route }) => {
           
           console.log('🔄 Minimal booking data:', minimalBookingData);
           
-          response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
+          response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -467,7 +467,7 @@ const TableBooking = ({ route }) => {
             
             console.log('🔄 Alternative field names data:', alternativeBookingData);
             
-            response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
+            response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -497,7 +497,7 @@ const TableBooking = ({ route }) => {
                 
                 console.log('👤 Creating customer:', customerData);
                 
-                const customerResponse = await fetch('https://hotelvirat.com/api/v1/hotel/customer', {
+                const customerResponse = await fetch('http://192.168.1.27:9000/api/v1/hotel/customer', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -518,7 +518,7 @@ const TableBooking = ({ route }) => {
                   
                   console.log('🔄 Booking with new customer ID:', bookingWithNewCustomer);
                   
-                  response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
+                  response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
@@ -756,7 +756,10 @@ const TableBooking = ({ route }) => {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContainer, colorScheme === 'dark' ? styles.modalContainerDark : styles.modalContainerLight]}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView 
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+            >
               <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
                   Book Table {selectedTable?.number}
@@ -1299,6 +1302,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '92%',
+    maxWidth: 500, // Maximum width for tablets/larger screens
     maxHeight: '85%',
     borderRadius: 20,
     padding: 24,
@@ -1313,6 +1317,10 @@ const styles = StyleSheet.create({
   },
   modalContainerDark: {
     backgroundColor: '#1f1f1f',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 8,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1372,15 +1380,21 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 12,
     marginTop: 8,
+    marginBottom: 8,
+    width: '100%',
   },
   cancelButton: {
-    flex: 0.45,
+    flex: 1,
     paddingVertical: 14,
+    paddingHorizontal: 8,
     borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
+    minWidth: 120, // Minimum width for smaller screens
+    maxWidth: '48%', // Prevent buttons from becoming too wide
   },
   cancelButtonLight: {
     backgroundColor: '#fff',
@@ -1392,30 +1406,40 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: {
     color: '#800000',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.3,
+    textAlign: 'center',
+    includeFontPadding: false, // Better text alignment
+    textAlignVertical: 'center',
   },
   bookConfirmButton: {
-    flex: 0.45,
+    flex: 1,
     backgroundColor: '#800000',
     paddingVertical: 14,
+    paddingHorizontal: 8,
     borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#800000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
+    minWidth: 120, // Minimum width for smaller screens
+    maxWidth: '48%', // Prevent buttons from becoming too wide
   },
   bookConfirmButtonDisabled: {
-    opacity: 1,
+    opacity: 0.7,
   },
   bookConfirmButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.5,
+    textAlign: 'center',
+    includeFontPadding: false, // Better text alignment
+    textAlignVertical: 'center',
   },
   pickerContainer: {
     borderWidth: 1.5,

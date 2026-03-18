@@ -34,7 +34,7 @@ const MyTableReservations = () => {
   }, []);
 
   // Base URL for API
-  const BASE_URL = 'https://hotelvirat.com';
+  const BASE_URL = 'http://192.168.1.27:9000';
 
   // Fetch user's table reservations
   const fetchTableReservations = async () => {

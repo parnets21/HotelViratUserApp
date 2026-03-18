@@ -20,6 +20,7 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { API_BASE_URL } from "../config/api";
 
 const formatDate = (isoString) => {
   const date = new Date(isoString);
@@ -351,13 +352,6 @@ const OrderDetailModal = ({ order, onClose, onCancelPress, canCancelOrder, loadi
                   </View>
                 )}
 
-                {order.deliveryOption === "delivery" && (
-                  <View style={[styles.priceRow, colorScheme === 'dark' ? styles.priceRowDark : styles.priceRowLight]}>
-                    <Text style={[styles.priceLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Delivery Fee</Text>
-                    <Text style={[styles.priceValue, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{order.deliveryFee.toFixed(2)}</Text>
-                  </View>
-                )}
-
                 <View style={[styles.priceRow, colorScheme === 'dark' ? styles.priceRowDark : styles.priceRowLight]}>
                   <Text style={[styles.priceLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Taxes & Charges</Text>
                   <Text style={[styles.priceValue, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{order.tax.toFixed(2)}</Text>
@@ -558,10 +552,20 @@ const MyOrders = () => {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/order/user/${userId}`);
+      console.log('🔄 Fetching orders for userId:', userId);
+      console.log('🔗 API URL:', `${API_BASE_URL}/order/user/${userId}`);
+      
+      const response = await fetch(`${API_BASE_URL}/order/user/${userId}`);
+      console.log('📊 Response status:', response.status);
+      
       const data = await response.json();
+      console.log('📦 Response data:', data);
+      
       if (response.ok) {
-        setOrders(data);
+        // Handle both array response and object with orders property
+        const ordersArray = Array.isArray(data) ? data : (data.orders || []);
+        setOrders(ordersArray);
+        console.log('✅ Orders loaded:', ordersArray.length);
       } else {
         Toast.show({
           type: "error",
@@ -572,11 +576,11 @@ const MyOrders = () => {
         });
       }
     } catch (error) {
-      console.error("Error fetching orders:", error);
+      console.error("❌ Error fetching orders:", error);
       Toast.show({
         type: "error",
         text1: "Error",
-        text2: "Failed to fetch orders",
+        text2: "Failed to fetch orders. Please check your connection.",
         position: "top",
         visibilityTime: 3000,
       });
@@ -631,7 +635,7 @@ const MyOrders = () => {
 
     setLoading(true);
     try {
-      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/order/${orderToCancel._id}/status`, {
+      const response = await fetch(`${API_BASE_URL}/order/${orderToCancel._id}/status`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

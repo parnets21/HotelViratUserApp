@@ -36,7 +36,7 @@ const EditProfile = ({ route }) => {
     return () => subscription.remove();
   }, []);
 
-  const BASE_URL = 'https://hotelvirat.com/api/v1/hotel';
+  const BASE_URL = 'http://192.168.1.27:9000/api/v1/hotel';
 
   const showToast = (message, type = 'error') => {
     if (Platform.OS === "android") {

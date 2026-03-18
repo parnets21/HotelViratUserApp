@@ -14,7 +14,7 @@ const TestApp = () => {
       <View style={styles.statusContainer}>
         <Text style={styles.statusText}>✅ Metro Server: Connected</Text>
         <Text style={styles.statusText}>✅ App Loading: Fixed</Text>
-        <Text style={styles.statusText}>✅ Backend: https://hotelvirat.com</Text>
+        <Text style={styles.statusText}>✅ Backend: http://192.168.1.27:9000</Text>
       </View>
     </View>
   );

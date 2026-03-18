@@ -99,16 +99,17 @@ const Home = () => {
   // Fetch branches from backend API
   useEffect(() => {
     const fetchBranches = async () => {
-      console.log("🌐 Fetching branches from backend...");
+      console.log("🌐 Fetching restaurant branches from backend...");
       
       try {
-        const response = await fetch(`${API_BASE_URL}/branch`);
+        // Use the new endpoint that returns only restaurant category branches
+        const response = await fetch(`${API_BASE_URL}/restaurant-branches`);
         
         if (response.ok) {
           const branchesData = await response.json();
           console.log("✅ Raw API Response:", JSON.stringify(branchesData, null, 2));
-          
-          // API returns an array of branches
+
+          // API returns an array of restaurant branches
           if (Array.isArray(branchesData) && branchesData.length > 0) {
             const processedBranches = branchesData.map(branch => ({
               id: branch._id,
@@ -116,41 +117,33 @@ const Home = () => {
               address: branch.address,
               image: branch.image,
               contact: branch.contact,
-              openingHours: branch.openingHours
+              openingHours: branch.openingHours,
+              category: branch.category || ''
             }));
-            
+
             console.log("✅ Processed branches array:", processedBranches);
             setBranches(processedBranches);
-            
+
             // Set selectedBranch to 0 to show the first branch
             if (selectedBranch === null || selectedBranch === undefined) {
               setSelectedBranch(0);
               console.log("✅ selectedBranch set to 0");
             }
           } else {
-            console.log("⚠️ No branches found in API response");
-            setBranches([{
-              id: 'default-branch',
-              name: 'Hotel Virat',
-              address: 'Main Location'
-            }]);
+            console.log("⚠️ No restaurant branches found - please add restaurant category to branches in admin panel");
+            setBranches([]);
+            setSelectedBranch(null);
           }
           
         } else {
-          console.log("⚠️ Using default branch");
-          setBranches([{
-            id: 'default-branch',
-            name: 'Hotel Virat',
-            address: 'Main Location'
-          }]);
+          console.log("⚠️ Failed to fetch branches");
+          setBranches([]);
+          setSelectedBranch(null);
         }
       } catch (error) {
         console.log("❌ Error fetching branches:", error.message);
-        setBranches([{
-          id: 'default-branch',
-          name: 'Hotel Virat',
-          address: 'Main Location'
-        }]);
+        setBranches([]);
+        setSelectedBranch(null);
       }
     };
     
@@ -160,7 +153,22 @@ const Home = () => {
   // Fetch categories, menu items, and offers for selected branch - FETCH FROM ADMIN PANEL
   useEffect(() => {
     const fetchData = async () => {
-      if (!branches.length || selectedBranch === null || selectedBranch === undefined) return;
+      // Safety timeout to prevent infinite loading
+      const loadingTimeout = setTimeout(() => {
+        if (loading) {
+          console.log("⚠️ Loading timeout - clearing loading state");
+          setLoading(false);
+          setError(null);
+        }
+      }, 15000); // 15 second timeout
+
+      if (!branches.length || selectedBranch === null || selectedBranch === undefined) {
+        clearTimeout(loadingTimeout);
+        // Don't show loading if no branches are available yet
+        // This allows the branch selection modal to appear
+        setLoading(false);
+        return;
+      }
       
       console.log("🍽️ Fetching menu data from admin panel...");
       setLoading(true);
@@ -662,17 +670,96 @@ const Home = () => {
                 return (
                   <TouchableOpacity
                     style={[styles.branchItem, selectedBranch === index && (colorScheme === 'dark' ? styles.selectedBranchItemDark : styles.selectedBranchItem)]}
-                    onPress={() => {
+                    onPress={async () => {
                       console.log("🔄 Branch selected:", index, item.name);
                       setSelectedBranch(index);
                       setShowBranchModal(false);
                       
-                      // Navigate to Categories screen with branch data
-                      navigation.navigate("Categories", {
-                        branchId: item.id,
-                        branchName: item.name,
-                        branchIndex: index
-                      });
+                      // Fetch restaurant categories for this branch
+                      try {
+                        const categoriesUrl = `${API_BASE_URL}/category?branchId=${item.id}`;
+                        const categoriesResponse = await fetch(categoriesUrl);
+                        
+                        if (categoriesResponse.ok) {
+                          const categoriesData = await categoriesResponse.json();
+                          
+                          // Filter only restaurant categories
+                          const restaurantCategories = categoriesData.filter(cat => 
+                            cat.name && cat.name.toLowerCase().includes('restaurant')
+                          );
+                          
+                          console.log("🍽️ Restaurant categories found:", restaurantCategories.length);
+                          
+                          if (restaurantCategories.length > 0) {
+                            // Process categories
+                            const processedCategories = restaurantCategories.map(category => {
+                              let imageUrl = null;
+                              if (category.image) {
+                                console.log("🖼️ Category image raw:", category.image);
+                                
+                                // Check if image is a full URL (http/https)
+                                if (category.image.startsWith('http')) {
+                                  // If it's a production URL, replace with local server URL
+                                  if (category.image.includes('hotelviratbackend') || 
+                                      category.image.includes('render.com') || 
+                                      category.image.includes('netlify') ||
+                                      category.image.includes('amazonaws.com')) {
+                                    // Extract the path after 'uploads/'
+                                    const uploadsIndex = category.image.indexOf('uploads/');
+                                    if (uploadsIndex !== -1) {
+                                      const imagePath = category.image.substring(uploadsIndex);
+                                      imageUrl = `${IMAGE_BASE_URL}/${imagePath}`;
+                                      console.log("🔄 Converted production URL to local:", imageUrl);
+                                    } else {
+                                      // Use as is if we can't extract path
+                                      imageUrl = category.image;
+                                    }
+                                  } else {
+                                    // Already a valid URL (maybe local)
+                                    imageUrl = category.image;
+                                  }
+                                } else {
+                                  // Relative path
+                                  const cleanImagePath = category.image.startsWith('/') 
+                                    ? category.image.substring(1) 
+                                    : category.image;
+                                  imageUrl = `${IMAGE_BASE_URL}/${cleanImagePath}`;
+                                }
+                                console.log("🖼️ Category image URL:", imageUrl);
+                              } else {
+                                console.log("⚠️ Category has no image:", category.name);
+                              }
+                              
+                              return {
+                                id: category._id || category.id,
+                                name: category.name,
+                                image: imageUrl,
+                                description: category.description || ''
+                              };
+                            });
+                            
+                            console.log("📊 Processed categories:", processedCategories.map(c => ({ name: c.name, image: c.image })));
+                            
+                            // Navigate directly to Product screen with restaurant categories
+                            navigation.navigate("Product", {
+                              initialCategory: 0,
+                              categoryId: processedCategories[0].id,
+                              categories: processedCategories,
+                              branchId: item.id,
+                              branchIndex: index,
+                              menuItems: [],
+                              allMenuItems: {}
+                            });
+                          } else {
+                            // No restaurant categories, show message
+                            console.log("⚠️ No restaurant categories found for this branch");
+                            alert("No restaurant menu available for this branch");
+                          }
+                        }
+                      } catch (error) {
+                        console.error("❌ Error fetching categories:", error);
+                        alert("Failed to load menu");
+                      }
                     }}
                   >
                     <View style={styles.branchItemLeft}>

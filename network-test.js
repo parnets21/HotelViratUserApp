@@ -5,9 +5,9 @@ const testNetworkConnectivity = async () => {
   console.log('🔍 Testing network connectivity...');
   
   const endpoints = [
-    'https://hotelvirat.com/api/v1/hotel/category',
-    'https://hotelvirat.com/api/v1/hotel/category',
-    'https://hotelvirat.com/api/v1/hotel/category'
+    'http://192.168.1.27:9000/api/v1/hotel/category',
+    'http://192.168.1.27:9000/api/v1/hotel/category',
+    'http://192.168.1.27:9000/api/v1/hotel/category'
   ];
   
   for (const endpoint of endpoints) {

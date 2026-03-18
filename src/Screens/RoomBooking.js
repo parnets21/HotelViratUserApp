@@ -33,7 +33,7 @@ const getImageUrl = (imagePath) => {
   if (imagePath.startsWith("http")) return imagePath;
   
   // Use production server for images (images are stored there)
-  const prodBaseUrl = "https://hotelvirat.com";
+  const prodBaseUrl = "http://192.168.1.27:9000";
   
   // Clean up the path - remove leading slash if present
   let cleanPath = imagePath.replace(/\\/g, '/'); // Convert backslashes to forward slashes
@@ -436,25 +436,27 @@ const RoomBooking = () => {
           checkInDate.setHours(0, 0, 0, 0);
           checkOutDate.setHours(0, 0, 0, 0);
           
-          // Room is occupied from check-in date until (but NOT including) check-out date
-          // So if checkout is today, room is available today
-          // Only show as booked if checkout date is in the future (tomorrow or later)
-          if (checkOutDate > today) {
+          // Room is occupied ONLY if today is between check-in and check-out dates
+          // Check-in date is inclusive, check-out date is exclusive
+          // So: checkInDate <= today < checkOutDate
+          if (checkInDate <= today && checkOutDate > today) {
             const roomId = booking.roomId?._id || booking.roomId;
             if (roomId) {
-              // Store the booking for this room
+              // Store the booking for this room (only if it's currently occupied)
               if (!bookingsMap[roomId]) {
                 bookingsMap[roomId] = booking;
-                console.log('  🔒 Room', roomId, 'booked until', checkOutDate.toISOString().split('T')[0]);
+                console.log('  🔒 Room', roomId, 'currently occupied (check-in:', checkInDate.toISOString().split('T')[0], 'check-out:', checkOutDate.toISOString().split('T')[0], ')');
               }
             }
+          } else if (checkInDate > today) {
+            console.log('  📅 Future booking (check-in:', checkInDate.toISOString().split('T')[0], ')- not currently occupied');
           } else {
             console.log('  ✅ Booking expired (checkout date passed):', booking._id);
           }
         }
       });
       
-      console.log('✅ Active bookings map:', bookingsMap);
+      console.log('✅ Currently occupied rooms map:', bookingsMap);
       setRoomBookings(bookingsMap);
       
     } catch (error) {

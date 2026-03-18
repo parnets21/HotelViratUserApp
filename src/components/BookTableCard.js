@@ -31,7 +31,7 @@ const BookTableCard = ({ branchId }) => {
       setError(null);
 
       // Fetch tables directly from admin panel backend
-      const response = await fetch('https://hotelvirat.com/api/v1/hotel/table');
+      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/table');
       
       const data = await response.json();
       

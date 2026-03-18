@@ -181,13 +181,13 @@ const Product = ({ route }) => {
       
       // Pattern 1: Direct path as stored
       if (cleanPath.startsWith("uploads/")) {
-        urls.push(`https://hotelvirat.com/${cleanPath}`);
+        urls.push(`http://192.168.1.27:9000/${cleanPath}`);
       } else if (cleanPath.startsWith("/uploads/")) {
-        urls.push(`https://hotelvirat.com${cleanPath}`);
+        urls.push(`http://192.168.1.27:9000${cleanPath}`);
       } else {
         // Pattern 2: Assume it's in uploads/menu/
         const filename = cleanPath.split("/").pop();
-        urls.push(`https://hotelvirat.com/uploads/menu/${filename}`);
+        urls.push(`http://192.168.1.27:9000/uploads/menu/${filename}`);
       }
       
       // Pattern 3: URL encode spaces and special characters
@@ -200,12 +200,12 @@ const Product = ({ route }) => {
       
       // Pattern 4: Production fallback
       if (cleanPath.startsWith("uploads/")) {
-        urls.push(`https://hotelvirat.com/${cleanPath}`);
+        urls.push(`http://192.168.1.27:9000/${cleanPath}`);
       } else if (cleanPath.startsWith("/uploads/")) {
-        urls.push(`https://hotelvirat.com${cleanPath}`);
+        urls.push(`http://192.168.1.27:9000${cleanPath}`);
       } else {
         const filename = cleanPath.split("/").pop();
-        urls.push(`https://hotelvirat.com/uploads/menu/${filename}`);
+        urls.push(`http://192.168.1.27:9000/uploads/menu/${filename}`);
       }
       
       return [...new Set(urls)]; // Remove duplicates
@@ -281,8 +281,8 @@ const Product = ({ route }) => {
     
     // Try multiple URL patterns
     const possibleUrls = [
-      `https://hotelvirat.com${cleanPath}`, // Local server
-      `https://hotelvirat.com${cleanPath}`, // Production server
+      `http://192.168.1.27:9000${cleanPath}`, // Local server
+      `http://192.168.1.27:9000${cleanPath}`, // Production server
     ];
     
     return possibleUrls[0]; // Return first URL for now, we'll validate in the Image component
@@ -301,7 +301,7 @@ const Product = ({ route }) => {
       console.log(`✅ API connectivity: ${apiResponse.status}`);
       
       // Test image server connectivity
-      const imageResponse = await fetch('https://hotelvirat.com/uploads/menu/', { 
+      const imageResponse = await fetch('http://192.168.1.27:9000/uploads/menu/', { 
         method: 'HEAD',
         timeout: 5000 
       });
@@ -1309,8 +1309,8 @@ const Product = ({ route }) => {
         </View>
       )}
 
-      {/* Hide category tabs when coming from specific category selection from Home screen */}
-      {!route.params?.categoryId && categories && categories.length > 1 && (
+      {/* Category tabs with images */}
+      {categories && categories.length > 1 && (
         <View style={[styles.categoryWrapper, colorScheme === 'dark' ? styles.categoryWrapperDark : styles.categoryWrapperLight]}>
           <ScrollView
             horizontal
@@ -1324,6 +1324,15 @@ const Product = ({ route }) => {
                   onPress={() => handleCategoryPress(category.id, index)}
                   style={[styles.categoryButton, selectedCategory === index && (colorScheme === 'dark' ? styles.selectedCategoryDark : styles.selectedCategory)]}
                 >
+                  {category.image && (
+                    <Image
+                      source={{ uri: category.image }}
+                      style={styles.categoryImage}
+                      onError={(e) => {
+                        console.log("❌ Category image failed to load:", category.name, category.image);
+                      }}
+                    />
+                  )}
                   <Text style={[styles.categoryText, selectedCategory === index && styles.selectedCategoryText]}>
                     {category.name}
                   </Text>
@@ -1746,6 +1755,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#FFD700",
   },
+  categoryImage: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 8,
+  },
   selectedCategoryText: {
     color: "#FFD700",
     fontWeight: "700",
@@ -1777,9 +1792,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   foodImageContainer: {
-    width: 100, // Reduced from 120 to 100
-    height: 100, // Reduced from 120 to 100
-    marginRight: 16,
+    width: 85,
+    height: 85,
+    marginRight: 12,
     position: 'relative',
   },
   foodImage: {
@@ -1842,6 +1857,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "space-between",
     minHeight: 100,
+    minWidth: 0,
   },
   foodNameContainer: {
     flexDirection: 'row',
@@ -1874,14 +1890,14 @@ const styles = StyleSheet.create({
   priceAndCartContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end", // Changed to flex-end to align button to bottom
-    marginTop: 8, // Added margin to give more space
-    flex: 1, // Ensure it takes available space
+    alignItems: "center", // Changed from "flex-end" to "center" for better vertical alignment
+    marginTop: 8,
+    width: "100%", // Ensure it takes full width
   },
   priceSection: {
     flex: 1,
-    marginRight: 12, // Increased from 8 to 12 for more space
-    minWidth: 100, // Ensure minimum width for price section
+    marginRight: 8, // Reduced from 12 to give more space to cart controls
+    minWidth: 80, // Reduced from 100 to give more space to cart controls
   },
   priceContainer: {
     flexDirection: 'column',
@@ -1930,10 +1946,11 @@ const styles = StyleSheet.create({
   },
   // Cart Control Styles
   cartControlContainer: {
-    alignItems: "flex-end",
-    justifyContent: "flex-end",
+    alignItems: "center", // Changed from "flex-end" to "center"
+    justifyContent: "center",
     minHeight: 40,
-    minWidth: 100, // Ensure minimum width for buttons
+    minWidth: 100,
+    flexShrink: 0, // Prevent shrinking
   },
   quantityContainer: {
     flexDirection: "row",
@@ -1947,11 +1964,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    width: "auto", // Auto width based on content
+    alignSelf: "flex-end", // Align to the right
   },
   quantityButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
@@ -1971,8 +1990,8 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   quantityDisplay: {
-    minWidth: 45,
-    paddingHorizontal: 12,
+    minWidth: 30,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     alignItems: "center",
     justifyContent: "center",
@@ -1984,18 +2003,20 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: "#800000",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingVertical: 8, // Reduced from 12 to 8
+    paddingHorizontal: 12, // Reduced from 12 to 8
     borderRadius: 25,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 4, // Reduced from 8 to 4
     shadowColor: "#800000",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 5,
+    width: "auto", // Auto width based on content
+    alignSelf: "flex-end", // Align to the right
   },
   addButtonText: {
     color: "#FFD700",

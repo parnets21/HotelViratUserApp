@@ -1056,7 +1056,7 @@ const AddressModal = ({ visible, onClose, onSave, userId, editAddress = null, co
     try {
       if (isEditMode) {
         // Update existing address
-        const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${editAddress._id}`, {
+        const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${editAddress._id}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -1078,7 +1078,7 @@ const AddressModal = ({ visible, onClose, onSave, userId, editAddress = null, co
         }
       } else {
         // Add new address
-        const response = await fetch("https://hotelvirat.com/api/v1/hotel/address", {
+        const response = await fetch("http://192.168.1.27:9000/api/v1/hotel/address", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1374,7 +1374,7 @@ const CheckOut = () => {
     if (!userId) return
 
     try {
-      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${userId}`)
+      const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${userId}`)
       const data = await response.json()
 
       if (Array.isArray(data)) {
@@ -1402,7 +1402,7 @@ const CheckOut = () => {
       setLoading(true)
       try {
         // Get branch ID for the selected branch index
-        const branchesResponse = await fetch("https://hotelvirat.com/api/v1/hotel/branch")
+        const branchesResponse = await fetch("http://192.168.1.27:9000/api/v1/hotel/branch")
         const branchesData = await branchesResponse.json()
 
         if (!Array.isArray(branchesData) || branchesData.length === 0) {
@@ -1426,7 +1426,7 @@ const CheckOut = () => {
 
         // Fetch cart data
         const cartResponse = await fetch(
-          `https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`,
+          `http://192.168.1.27:9000/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`,
         )
         const cartData = await cartResponse.json()
 
@@ -1440,7 +1440,7 @@ const CheckOut = () => {
                   imageUrl = item.image;
                 } else {
                   // Use production server where images are actually hosted
-                  const prodBaseUrl = "https://hotelvirat.com";
+                  const prodBaseUrl = "http://192.168.1.27:9000";
                   let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
                   
                   if (cleanPath.startsWith("/")) {
@@ -1470,7 +1470,7 @@ const CheckOut = () => {
 
         // Fetch available coupons
         const couponsResponse = await fetch(
-          `https://hotelvirat.com/api/v1/hotel/coupon?isActive=true&branchId=${currentBranchId}`,
+          `http://192.168.1.27:9000/api/v1/hotel/coupon?isActive=true&branchId=${currentBranchId}`,
         )
         const couponsData = await couponsResponse.json()
 
@@ -1599,11 +1599,10 @@ const CheckOut = () => {
 
   // Calculate order totals
   const subtotal = cartItems.reduce((total, item) => total + item.price * item.quantity, 0)
-  const deliveryFee = 40 // Fixed delivery fee
   const discount = couponDetails ? couponDetails.discountAmount : 0
   const discountedSubtotal = subtotal - discount
   const tax = 0 // Tax removed
-  const total = discountedSubtotal + deliveryFee
+  const total = discountedSubtotal
 
   // Debug coupon state
   console.log('🎫 Coupon Debug:', {
@@ -1627,7 +1626,7 @@ const CheckOut = () => {
         branchId
       })
 
-      const response = await fetch("https://hotelvirat.com/api/v1/hotel/coupon/validate", {
+      const response = await fetch("http://192.168.1.27:9000/api/v1/hotel/coupon/validate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1706,7 +1705,7 @@ const CheckOut = () => {
         couponEndDate: coupon.endDate
       })
 
-      const response = await fetch("https://hotelvirat.com/api/v1/hotel/coupon/validate", {
+      const response = await fetch("http://192.168.1.27:9000/api/v1/hotel/coupon/validate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1777,7 +1776,7 @@ const CheckOut = () => {
   // Handle set default address
   const handleSetDefaultAddress = async (addressId) => {
     try {
-      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${addressId}/default`, {
+      const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${addressId}/default`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -1866,7 +1865,7 @@ const CheckOut = () => {
 
     setIsAddressLoading(true)
     try {
-      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${addressToDelete}`, {
+      const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${addressToDelete}`, {
         method: "DELETE",
       })
 
@@ -1948,7 +1947,7 @@ const CheckOut = () => {
         name: item.name,
         price: item.price,
         quantity: item.quantity,
-        image: item.image ? item.image.replace("https://hotelvirat.com/", "") : null,
+        image: item.image ? item.image.replace("http://192.168.1.27:9000/", "") : null,
         categoryId: item.categoryId,
         categoryName: item.categoryName,
       }))
@@ -1972,7 +1971,6 @@ const CheckOut = () => {
         subtotal,
         discount,
         couponCode: appliedCoupon,
-        deliveryFee,
         tax,
         total,
         deliveryOption,
@@ -1986,7 +1984,7 @@ const CheckOut = () => {
       }
 
       // Create order using local backend
-      const orderResponse = await fetch("https://hotelvirat.com/api/v1/hotel/order", {
+      const orderResponse = await fetch("http://192.168.1.27:9000/api/v1/hotel/order", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2003,7 +2001,7 @@ const CheckOut = () => {
 
       // Apply coupon if used
       if (appliedCoupon) {
-        await fetch("https://hotelvirat.com/api/v1/hotel/coupon/apply", {
+        await fetch("http://192.168.1.27:9000/api/v1/hotel/coupon/apply", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -2306,8 +2304,8 @@ const CheckOut = () => {
           </View>
         </View>
 
-        {/* Available Offers */}
-        <View style={[styles.section, colorScheme === 'dark' ? styles.sectionDark : styles.sectionLight]}>
+        {/* Available Offers - COMMENTED OUT */}
+        {/* <View style={[styles.section, colorScheme === 'dark' ? styles.sectionDark : styles.sectionLight]}>
           <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Available Offers</Text>
           <View style={styles.couponContainer}>
             <TextInput
@@ -2348,7 +2346,7 @@ const CheckOut = () => {
             </View>
           )}
           <View style={styles.couponList}>{availableCoupons.map((coupon) => renderCouponItem(coupon))}</View>
-        </View>
+        </View> */}
 
         {/* Special Instructions */}
         <View style={[styles.section, colorScheme === 'dark' ? styles.sectionDark : styles.sectionLight]}>
@@ -2383,10 +2381,6 @@ const CheckOut = () => {
                 <Text style={[styles.priceValue, styles.discountValue]}>-₹{discount.toFixed(2)}</Text>
               </View>
             )}
-            <View style={[styles.priceRow, colorScheme === 'dark' ? styles.priceRowDark : styles.priceRowLight]}>
-              <Text style={[styles.priceLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Delivery Fee</Text>
-              <Text style={[styles.priceValue, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>₹{deliveryFee.toFixed(2)}</Text>
-            </View>
             <View style={[styles.priceRow, styles.totalRow, colorScheme === 'dark' ? styles.priceRowDark : styles.priceRowLight]}>
               <Text style={[styles.totalLabel, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Total</Text>
               <Text style={styles.totalValue}>₹{total.toFixed(2)}</Text>
