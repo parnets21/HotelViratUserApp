@@ -97,12 +97,12 @@ const Login = () => {
     setIsSendingOtp(true);
     try {
       console.log("📱 Sending OTP to:", mobile);
-      console.log("🌐 Using URL:", 'http://192.168.1.27:9000/api/v1/hotel/user-auth/login/send-otp');
+      console.log("🌐 Using URL:", 'https://hotelvirat.com/api/v1/hotel/user-auth/login/send-otp');
       
       const requestBody = JSON.stringify({ mobile });
       console.log("📦 Request body:", requestBody);
       
-      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/user-auth/login/send-otp', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/login/send-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -148,7 +148,7 @@ const Login = () => {
   const handleResendOtp = async () => {
     setIsSendingOtp(true);
     try {
-      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/user-auth/login/resend-otp', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/login/resend-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -177,7 +177,7 @@ const Login = () => {
     setIsLoggingIn(true);
     try {
       console.log("🔐 Verifying OTP for mobile:", mobile, "OTP:", otp);
-      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/user-auth/verify-otp', {
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/user-auth/verify-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

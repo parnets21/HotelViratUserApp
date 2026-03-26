@@ -102,7 +102,7 @@ const TableBooking = ({ route }) => {
     try {
       console.log("🌐 Fetching branches for table booking...");
       
-      const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/branch');
+      const response = await fetch('https://hotelvirat.com/api/v1/hotel/branch');
       
       if (response.ok) {
         const branchesData = await response.json();
@@ -144,8 +144,8 @@ const TableBooking = ({ route }) => {
       
       // Fetch tables and all reservations for today in parallel
       const [tablesResponse, reservationsResponse] = await Promise.all([
-        fetch(`http://192.168.1.27:9000/api/v1/hotel/table?branchId=${selectedBranchId}`),
-        fetch(`http://192.168.1.27:9000/api/v1/hotel/reservation?date=${bookingDetails.bookingDate}&limit=1000`)
+        fetch(`https://hotelvirat.com/api/v1/hotel/table?branchId=${selectedBranchId}`),
+        fetch(`https://hotelvirat.com/api/v1/hotel/reservation?date=${bookingDetails.bookingDate}&limit=1000`)
       ]);
       
       const tablesData = await tablesResponse.json();
@@ -209,7 +209,7 @@ const TableBooking = ({ route }) => {
         console.log('🔍 Fetching unavailable slots for:', { tableId, date });
 
         const response = await fetch(
-          `http://192.168.1.27:9000/api/v1/hotel/reservation?tableId=${tableId}&date=${date}&limit=1000`
+          `https://hotelvirat.com/api/v1/hotel/reservation?tableId=${tableId}&date=${date}&limit=1000`
         );
 
         if (!response.ok) {
@@ -316,7 +316,7 @@ const TableBooking = ({ route }) => {
       
       // Check if the time slot is already booked for this table on the selected date
       const checkResponse = await fetch(
-        `http://192.168.1.27:9000/api/v1/hotel/reservation?tableId=${selectedTable._id}&date=${bookingDetails.bookingDate}`
+        `https://hotelvirat.com/api/v1/hotel/reservation?tableId=${selectedTable._id}&date=${bookingDetails.bookingDate}`
       );
       
       if (checkResponse.ok) {
@@ -362,13 +362,13 @@ const TableBooking = ({ route }) => {
       }
 
       console.log('📋 Sending booking data:', bookingData);
-      console.log('📋 Backend URL:', 'http://192.168.1.27:9000/api/v1/hotel/reservation');
+      console.log('📋 Backend URL:', 'https://hotelvirat.com/api/v1/hotel/reservation');
       console.log('📋 Request headers:', {
         'Content-Type': 'application/json',
       });
 
       // Create table reservation using the admin panel reservation endpoint
-      let response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
+      let response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -400,7 +400,7 @@ const TableBooking = ({ route }) => {
         
         console.log('🔄 Retry 1: Booking without customer fields:', bookingDataWithoutCustomer);
         
-        response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
+        response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -433,7 +433,7 @@ const TableBooking = ({ route }) => {
           
           console.log('🔄 Minimal booking data:', minimalBookingData);
           
-          response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
+          response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -467,7 +467,7 @@ const TableBooking = ({ route }) => {
             
             console.log('🔄 Alternative field names data:', alternativeBookingData);
             
-            response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
+            response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -497,7 +497,7 @@ const TableBooking = ({ route }) => {
                 
                 console.log('👤 Creating customer:', customerData);
                 
-                const customerResponse = await fetch('http://192.168.1.27:9000/api/v1/hotel/customer', {
+                const customerResponse = await fetch('https://hotelvirat.com/api/v1/hotel/customer', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -518,7 +518,7 @@ const TableBooking = ({ route }) => {
                   
                   console.log('🔄 Booking with new customer ID:', bookingWithNewCustomer);
                   
-                  response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
+                  response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',

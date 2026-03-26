@@ -181,13 +181,13 @@ const Product = ({ route }) => {
       
       // Pattern 1: Direct path as stored
       if (cleanPath.startsWith("uploads/")) {
-        urls.push(`http://192.168.1.27:9000/${cleanPath}`);
+        urls.push(`https://hotelvirat.com/${cleanPath}`);
       } else if (cleanPath.startsWith("/uploads/")) {
-        urls.push(`http://192.168.1.27:9000${cleanPath}`);
+        urls.push(`https://hotelvirat.com${cleanPath}`);
       } else {
         // Pattern 2: Assume it's in uploads/menu/
         const filename = cleanPath.split("/").pop();
-        urls.push(`http://192.168.1.27:9000/uploads/menu/${filename}`);
+        urls.push(`https://hotelvirat.com/uploads/menu/${filename}`);
       }
       
       // Pattern 3: URL encode spaces and special characters
@@ -200,12 +200,12 @@ const Product = ({ route }) => {
       
       // Pattern 4: Production fallback
       if (cleanPath.startsWith("uploads/")) {
-        urls.push(`http://192.168.1.27:9000/${cleanPath}`);
+        urls.push(`https://hotelvirat.com/${cleanPath}`);
       } else if (cleanPath.startsWith("/uploads/")) {
-        urls.push(`http://192.168.1.27:9000${cleanPath}`);
+        urls.push(`https://hotelvirat.com${cleanPath}`);
       } else {
         const filename = cleanPath.split("/").pop();
-        urls.push(`http://192.168.1.27:9000/uploads/menu/${filename}`);
+        urls.push(`https://hotelvirat.com/uploads/menu/${filename}`);
       }
       
       return [...new Set(urls)]; // Remove duplicates
@@ -281,8 +281,8 @@ const Product = ({ route }) => {
     
     // Try multiple URL patterns
     const possibleUrls = [
-      `http://192.168.1.27:9000${cleanPath}`, // Local server
-      `http://192.168.1.27:9000${cleanPath}`, // Production server
+      `https://hotelvirat.com${cleanPath}`, // Local server
+      `https://hotelvirat.com${cleanPath}`, // Production server
     ];
     
     return possibleUrls[0]; // Return first URL for now, we'll validate in the Image component
@@ -301,7 +301,7 @@ const Product = ({ route }) => {
       console.log(`✅ API connectivity: ${apiResponse.status}`);
       
       // Test image server connectivity
-      const imageResponse = await fetch('http://192.168.1.27:9000/uploads/menu/', { 
+      const imageResponse = await fetch('https://hotelvirat.com/uploads/menu/', { 
         method: 'HEAD',
         timeout: 5000 
       });

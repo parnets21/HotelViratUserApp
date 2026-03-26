@@ -33,7 +33,7 @@ const getImageUrl = (imagePath) => {
   if (imagePath.startsWith("http")) return imagePath;
   
   // Use production server for images (images are stored there)
-  const prodBaseUrl = "http://192.168.1.27:9000";
+  const prodBaseUrl = "https://hotelvirat.com";
   
   // Clean up the path - remove leading slash if present
   let cleanPath = imagePath.replace(/\\/g, '/'); // Convert backslashes to forward slashes

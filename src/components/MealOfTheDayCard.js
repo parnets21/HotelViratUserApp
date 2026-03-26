@@ -55,7 +55,7 @@ const MealOfTheDayCard = ({ branchId }) => {
       }
 
       const response = await fetch(
-        `http://192.168.1.27:9000/api/v1/hotel/meal-of-the-day/today/${currentBranchId}`
+        `https://hotelvirat.com/api/v1/hotel/meal-of-the-day/today/${currentBranchId}`
       );
       
       const data = await response.json();

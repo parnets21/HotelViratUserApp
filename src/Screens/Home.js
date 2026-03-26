@@ -591,6 +591,38 @@ const Home = () => {
         {/* Meal of the Day Section - COMMENTED OUT */}
         {/* <MealOfTheDayCard branchId={selectedBranch} /> */}
 
+        {/* Order Food Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Order Food</Text>
+          <TouchableOpacity
+            style={[styles.orderFoodCard, colorScheme === 'dark' ? styles.orderFoodCardDark : styles.orderFoodCardLight]}
+            onPress={() => setShowBranchModal(true)}
+            activeOpacity={0.85}
+          >
+            <View style={styles.orderFoodContent}>
+              <View style={styles.orderFoodLeft}>
+                <View style={styles.orderFoodIconContainer}>
+                  <Icon name="fastfood" size={32} color="#800000" />
+                </View>
+                <View style={styles.orderFoodTextContainer}>
+                  <Text style={[styles.orderFoodTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    Order Your Food
+                  </Text>
+                  <Text style={[styles.orderFoodSubtitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    Browse our menu and order your favourite dishes
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.orderFoodRight}>
+                <View style={styles.orderFoodBadge}>
+                  <Text style={styles.orderFoodBadgeText}>ORDER NOW</Text>
+                </View>
+                <Icon name="arrow-forward" size={20} color="#800000" />
+              </View>
+            </View>
+          </TouchableOpacity>
+        </View>
+
         {/* Table Booking Section */}
         <View style={styles.sectionContainer}>
           <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Table Booking</Text>
@@ -619,6 +651,38 @@ const Home = () => {
               <View style={styles.tableBookingRight}>
                 <View style={styles.tableBookingBadge}>
                   <Text style={styles.tableBookingBadgeText}>BOOK NOW</Text>
+                </View>
+                <Icon name="arrow-forward" size={20} color="#800000" />
+              </View>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Room Booking Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={[styles.sectionTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>Room Booking</Text>
+          <TouchableOpacity
+            style={[styles.roomBookingCard, colorScheme === 'dark' ? styles.roomBookingCardDark : styles.roomBookingCardLight]}
+            onPress={() => navigation.navigate('RoomBooking')}
+            activeOpacity={0.85}
+          >
+            <View style={styles.roomBookingContent}>
+              <View style={styles.roomBookingLeft}>
+                <View style={styles.roomBookingIconContainer}>
+                  <Icon name="hotel" size={32} color="#800000" />
+                </View>
+                <View style={styles.roomBookingTextContainer}>
+                  <Text style={[styles.roomBookingTitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    Book a Room
+                  </Text>
+                  <Text style={[styles.roomBookingSubtitle, colorScheme === 'dark' ? styles.textDark : styles.textLight]}>
+                    Comfortable stays with a homely experience
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.roomBookingRight}>
+                <View style={styles.roomBookingBadge}>
+                  <Text style={styles.roomBookingBadgeText}>BOOK NOW</Text>
                 </View>
                 <Icon name="arrow-forward" size={20} color="#800000" />
               </View>
@@ -1199,6 +1263,83 @@ const styles = StyleSheet.create({
     marginTop: 2,
     opacity: 0.8,
   },
+  // Order Food Section Styles
+  orderFoodCard: {
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#800000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(128, 0, 0, 0.15)",
+  },
+  orderFoodCardLight: {
+    backgroundColor: "#fff",
+  },
+  orderFoodCardDark: {
+    backgroundColor: "#2a2a2a",
+  },
+  orderFoodContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  orderFoodLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  orderFoodIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+    borderWidth: 2,
+    borderColor: "rgba(128, 0, 0, 0.2)",
+  },
+  orderFoodTextContainer: {
+    flex: 1,
+  },
+  orderFoodTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    marginBottom: 6,
+    color: "#800000",
+  },
+  orderFoodSubtitle: {
+    fontSize: 14,
+    opacity: 0.7,
+    lineHeight: 20,
+  },
+  orderFoodRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  orderFoodBadge: {
+    backgroundColor: "#800000",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 10,
+    shadowColor: "#800000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  orderFoodBadgeText: {
+    color: "#FFD700",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
   // Table Booking Section Styles
   tableBookingCard: {
     marginHorizontal: 15,
@@ -1271,6 +1412,83 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   tableBookingBadgeText: {
+    color: "#FFD700",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  // Room Booking Section Styles
+  roomBookingCard: {
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#800000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(128, 0, 0, 0.1)",
+  },
+  roomBookingCardLight: {
+    backgroundColor: "#fff",
+  },
+  roomBookingCardDark: {
+    backgroundColor: "#2a2a2a",
+  },
+  roomBookingContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  roomBookingLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  roomBookingIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#fff7ed",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+    borderWidth: 2,
+    borderColor: "rgba(128, 0, 0, 0.2)",
+  },
+  roomBookingTextContainer: {
+    flex: 1,
+  },
+  roomBookingTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    marginBottom: 6,
+    color: "#800000",
+  },
+  roomBookingSubtitle: {
+    fontSize: 14,
+    opacity: 0.7,
+    lineHeight: 20,
+  },
+  roomBookingRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  roomBookingBadge: {
+    backgroundColor: "#800000",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 10,
+    shadowColor: "#800000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  roomBookingBadgeText: {
     color: "#FFD700",
     fontSize: 12,
     fontWeight: "800",

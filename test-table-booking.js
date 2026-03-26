@@ -16,7 +16,7 @@ const testTableBooking = async () => {
   try {
     console.log('📋 Sending test booking data:', testBookingData);
     
-    const response = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
+    const response = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -48,7 +48,7 @@ const testTableBooking = async () => {
       
       console.log('📋 Trying alternative field names:', alternativeData);
       
-      const altResponse = await fetch('http://192.168.1.27:9000/api/v1/hotel/reservation', {
+      const altResponse = await fetch('https://hotelvirat.com/api/v1/hotel/reservation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

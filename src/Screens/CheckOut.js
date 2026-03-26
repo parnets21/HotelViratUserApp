@@ -1056,7 +1056,7 @@ const AddressModal = ({ visible, onClose, onSave, userId, editAddress = null, co
     try {
       if (isEditMode) {
         // Update existing address
-        const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${editAddress._id}`, {
+        const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${editAddress._id}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -1078,7 +1078,7 @@ const AddressModal = ({ visible, onClose, onSave, userId, editAddress = null, co
         }
       } else {
         // Add new address
-        const response = await fetch("http://192.168.1.27:9000/api/v1/hotel/address", {
+        const response = await fetch("https://hotelvirat.com/api/v1/hotel/address", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1374,7 +1374,7 @@ const CheckOut = () => {
     if (!userId) return
 
     try {
-      const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${userId}`)
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${userId}`)
       const data = await response.json()
 
       if (Array.isArray(data)) {
@@ -1402,7 +1402,7 @@ const CheckOut = () => {
       setLoading(true)
       try {
         // Get branch ID for the selected branch index
-        const branchesResponse = await fetch("http://192.168.1.27:9000/api/v1/hotel/branch")
+        const branchesResponse = await fetch("https://hotelvirat.com/api/v1/hotel/branch")
         const branchesData = await branchesResponse.json()
 
         if (!Array.isArray(branchesData) || branchesData.length === 0) {
@@ -1426,7 +1426,7 @@ const CheckOut = () => {
 
         // Fetch cart data
         const cartResponse = await fetch(
-          `http://192.168.1.27:9000/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`,
+          `https://hotelvirat.com/api/v1/hotel/cart?userId=${userId}&branchId=${currentBranchId}`,
         )
         const cartData = await cartResponse.json()
 
@@ -1440,7 +1440,7 @@ const CheckOut = () => {
                   imageUrl = item.image;
                 } else {
                   // Use production server where images are actually hosted
-                  const prodBaseUrl = "http://192.168.1.27:9000";
+                  const prodBaseUrl = "https://hotelvirat.com";
                   let cleanPath = item.image.toString().trim().replace(/\\/g, "/");
                   
                   if (cleanPath.startsWith("/")) {
@@ -1470,7 +1470,7 @@ const CheckOut = () => {
 
         // Fetch available coupons
         const couponsResponse = await fetch(
-          `http://192.168.1.27:9000/api/v1/hotel/coupon?isActive=true&branchId=${currentBranchId}`,
+          `https://hotelvirat.com/api/v1/hotel/coupon?isActive=true&branchId=${currentBranchId}`,
         )
         const couponsData = await couponsResponse.json()
 
@@ -1626,7 +1626,7 @@ const CheckOut = () => {
         branchId
       })
 
-      const response = await fetch("http://192.168.1.27:9000/api/v1/hotel/coupon/validate", {
+      const response = await fetch("https://hotelvirat.com/api/v1/hotel/coupon/validate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1705,7 +1705,7 @@ const CheckOut = () => {
         couponEndDate: coupon.endDate
       })
 
-      const response = await fetch("http://192.168.1.27:9000/api/v1/hotel/coupon/validate", {
+      const response = await fetch("https://hotelvirat.com/api/v1/hotel/coupon/validate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1776,7 +1776,7 @@ const CheckOut = () => {
   // Handle set default address
   const handleSetDefaultAddress = async (addressId) => {
     try {
-      const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${addressId}/default`, {
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${addressId}/default`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -1865,7 +1865,7 @@ const CheckOut = () => {
 
     setIsAddressLoading(true)
     try {
-      const response = await fetch(`http://192.168.1.27:9000/api/v1/hotel/address/${addressToDelete}`, {
+      const response = await fetch(`https://hotelvirat.com/api/v1/hotel/address/${addressToDelete}`, {
         method: "DELETE",
       })
 
@@ -1947,7 +1947,7 @@ const CheckOut = () => {
         name: item.name,
         price: item.price,
         quantity: item.quantity,
-        image: item.image ? item.image.replace("http://192.168.1.27:9000/", "") : null,
+        image: item.image ? item.image.replace("https://hotelvirat.com/", "") : null,
         categoryId: item.categoryId,
         categoryName: item.categoryName,
       }))
@@ -1984,7 +1984,7 @@ const CheckOut = () => {
       }
 
       // Create order using local backend
-      const orderResponse = await fetch("http://192.168.1.27:9000/api/v1/hotel/order", {
+      const orderResponse = await fetch("https://hotelvirat.com/api/v1/hotel/order", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2001,7 +2001,7 @@ const CheckOut = () => {
 
       // Apply coupon if used
       if (appliedCoupon) {
-        await fetch("http://192.168.1.27:9000/api/v1/hotel/coupon/apply", {
+        await fetch("https://hotelvirat.com/api/v1/hotel/coupon/apply", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
